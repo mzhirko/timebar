@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+/out/
+# never vendor third-party corpora or experiment output
+/data/
+DeonticBench/
+tracie/
+lextime*.csv
+_targets/
+_build/

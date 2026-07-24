@@ -1,0 +1,20 @@
+{
+  "description": "Vocabulary for this pack only.",
+  "anchor_aliases": {
+    "date on which the cause of action accrued": {
+      "plain": [
+        "cause of action accrued",
+        "accrual of the cause of action",
+        "date of accrual",
+        "date of the breach",
+        "breach of contract"
+      ],
+      "end_role_only": []
+    }
+  },
+  "action_cues": [
+    "brought",
+    "issued",
+    "commenced"
+  ]
+}

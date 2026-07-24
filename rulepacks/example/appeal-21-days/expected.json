@@ -1,0 +1,10 @@
+{
+  "timely.json": {
+    "verdict": "TIMELY",
+    "deadline": "2025-03-31"
+  },
+  "late.json": {
+    "verdict": "LATE",
+    "deadline": "2025-03-31"
+  }
+}

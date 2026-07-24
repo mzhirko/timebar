@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "document_id": "example_appeal_rule",
+  "document_type": "statute",
+  "source_text": "An appeal must be filed within 21 days from the date of the decision.",
+  "facts": [
+    {
+      "id": "r1",
+      "entity": "date of the decision",
+      "role": "START",
+      "value": null,
+      "raw_text": "",
+      "timex_type": "DATE",
+      "sentence": "An appeal must be filed within 21 days from the date of the decision.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    },
+    {
+      "id": "r2",
+      "entity": "filing of the appeal",
+      "role": "END",
+      "value": "P21D",
+      "raw_text": "P21D",
+      "timex_type": "DATE",
+      "sentence": "An appeal must be filed within 21 days from the date of the decision.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    }
+  ],
+  "dependencies": [
+    {
+      "from_id": "r1",
+      "to_id": "r2",
+      "constraint_type": "additive",
+      "constraint_expr": "21 days",
+      "delta_days": null,
+      "confidence": 1.0,
+      "verified": false,
+      "allen_relation": null,
+      "corroboration_count": 1
+    }
+  ],
+  "edit_scenarios": []
+}

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tdg-core"
+version = "0.1.0"
+description = "Temporal Dependency Graph format, deterministic entailment engine, and cross-document linker for legal timelines"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dateutil>=2.8",
+    "networkx>=3.0",
+    "jsonschema>=4.18",
+]
+# Deliberately NO llm/nlp dependencies. CI installs this package alone
+# and runs the full engine suite offline — that job is the proof of
+# "deterministic, exact by construction".
+
+[project.scripts]
+tdg = "tdg_core.cli:_entry"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tdg_core"]

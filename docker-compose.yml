@@ -1,0 +1,26 @@
+# Fully local LLM extraction: the tool + Ollama, no data leaves the machine.
+#   docker compose up -d ollama
+#   docker compose run --rm timebar build /case/documents -o /case/out --extractor llm
+# First time, pull a model:  docker compose exec ollama ollama pull gemma3:4b
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  timebar:
+    build: .
+    depends_on: [ollama]
+    environment:
+      # the LLM extractor's OpenAI-compatible endpoint -> local Ollama
+      OPENAI_BASE_URL: http://ollama:11434/v1
+      OPENAI_API_KEY: ollama            # any non-empty value; never leaves the network
+    volumes:
+      - ./mycase:/case
+    ports:
+      - "8501:8501"
+
+volumes:
+  ollama-models:

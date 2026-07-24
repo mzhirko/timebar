@@ -1,0 +1,28 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  # D2 made checkable: the engine installs and passes its full suite in an
+  # environment where openai / spacy / network deps simply do not exist.
+  engine-pure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - run: pip install ./packages/tdg-core pytest
+      - run: python -m pytest packages/tdg-core/tests -q
+      - name: assert no LLM/NLP deps leaked into the env
+        run: |
+          ! pip show openai spacy chromadb torch 2>/dev/null | grep -q Name
+
+  full:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { python-version: ["3.10", "3.12"] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python-version }}" }
+      - run: pip install -e ./packages/tdg-core -e ./packages/tdg-chrono pytest
+      - run: python -m pytest packages/tdg-core/tests packages/tdg-chrono/tests -q

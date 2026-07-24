@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "document_id": "et1",
+  "document_type": "legal",
+  "source_text": "\u2026",
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "effective date of termination",
+      "role": "END",
+      "value": "2025-07-14",
+      "raw_text": "2025-07-14",
+      "timex_type": "DATE",
+      "sentence": "The claimant's employment terminated with effect from 14 July 2025.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2025-07-14"
+    },
+    {
+      "id": "f3",
+      "entity": "presentation of the claim",
+      "role": "START",
+      "value": "2025-10-01",
+      "raw_text": "2025-10-01",
+      "timex_type": "DATE",
+      "sentence": "The claim was presented to the tribunal on 1 October 2025.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2025-10-01"
+    },
+    {
+      "id": "f4",
+      "entity": "response deadline",
+      "role": "END",
+      "value": "P28D",
+      "raw_text": "within 28 days",
+      "timex_type": "DATE",
+      "sentence": "The response is due within 28 days of service of the claim.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    },
+    {
+      "id": "f5",
+      "entity": "service of the claim",
+      "role": "START",
+      "value": "2025-10-06",
+      "raw_text": "2025-10-06",
+      "timex_type": "DATE",
+      "sentence": "The claim was served on the respondent on 6 October 2025.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2025-10-06"
+    }
+  ],
+  "dependencies": [
+    {
+      "from_id": "f5",
+      "to_id": "f4",
+      "constraint_type": "additive",
+      "constraint_expr": "within 28 days of",
+      "delta_days": 28,
+      "confidence": 1.0,
+      "verified": false,
+      "allen_relation": null,
+      "corroboration_count": 1
+    }
+  ],
+  "edit_scenarios": []
+}

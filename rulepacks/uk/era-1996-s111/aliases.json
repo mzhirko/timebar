@@ -1,0 +1,27 @@
+{
+  "description": "UK concept vocabulary for this pack. Loaded only when this pack is used; the engine ships with no jurisdiction vocabulary.",
+  "provenance": {
+    "effective date of termination": "ERA 1996 s.97 defines the EDT; judgments write it as dismissal/termination.",
+    "date of the act": "EqA 2010 s.123(1)(a); s.123(3)(a): conduct extending over a period is treated as done at its END."
+  },
+  "anchor_aliases": {
+    "effective date of termination": {
+      "plain": ["effective date of termination", "edt", "dismissal",
+                "dismissal date", "date of dismissal", "termination",
+                "termination date", "employment termination",
+                "termination of employment", "summary dismissal",
+                "summarily dismissed"],
+      "end_role_only": []
+    },
+    "date of the act": {
+      "plain": ["date of the act", "act complained of", "discriminatory act",
+                "act of discrimination", "incident", "dismissal",
+                "dismissal date", "date of dismissal"],
+      "end_role_only": ["conduct extending over a period",
+                        "continuing state of affairs", "continuing act",
+                        "continuing conduct", "course of conduct",
+                        "harassment", "harassment period"]
+    }
+  },
+  "action_cues": ["et1", "claim form"]
+}

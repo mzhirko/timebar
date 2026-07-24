@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "document_id": "era1996_s111",
+  "document_type": "statute",
+  "source_text": "A complaint shall be presented to the tribunal within the period of three months beginning with the effective date of termination.",
+  "facts": [
+    {
+      "id": "r1",
+      "entity": "effective date of termination",
+      "role": "START",
+      "value": null,
+      "raw_text": "",
+      "timex_type": "DATE",
+      "sentence": "A complaint shall be presented to the tribunal within the period of three months beginning with the effective date of termination.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    },
+    {
+      "id": "r2",
+      "entity": "presentation of the complaint",
+      "role": "END",
+      "value": "P3M",
+      "raw_text": "P3M",
+      "timex_type": "DATE",
+      "sentence": "A complaint shall be presented to the tribunal within the period of three months beginning with the effective date of termination.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    }
+  ],
+  "dependencies": [
+    {
+      "from_id": "r1",
+      "to_id": "r2",
+      "constraint_type": "additive",
+      "constraint_expr": "3 months",
+      "delta_days": null,
+      "confidence": 1.0,
+      "verified": false,
+      "allen_relation": null,
+      "corroboration_count": 1
+    }
+  ],
+  "edit_scenarios": []
+}

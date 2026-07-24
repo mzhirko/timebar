@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "document_id": "grounds_of_resistance",
+  "document_type": "legal",
+  "source_text": "\u2026",
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "commencement of employment",
+      "role": "START",
+      "value": "2019-03-03",
+      "raw_text": "2019-03-03",
+      "timex_type": "DATE",
+      "sentence": "The claimant commenced employment with the company on 3 March 2019.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2019-03-03"
+    },
+    {
+      "id": "f9",
+      "entity": "some clause fragment",
+      "role": "UNKNOWN",
+      "value": null,
+      "raw_text": "",
+      "timex_type": "DATE",
+      "sentence": "The respondent denies each and every allegation.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": false,
+      "start_char": 0,
+      "end_char": 0
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}

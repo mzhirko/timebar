@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "document_id": "gold_late",
+  "document_type": "judgment",
+  "source_text": "\u2026",
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "cause of action accrued",
+      "role": "START",
+      "value": "2018-03-10",
+      "raw_text": "2018-03-10",
+      "timex_type": "DATE",
+      "sentence": "The cause of action accrued on the date of the breach, 10 March 2018.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2018-03-10"
+    },
+    {
+      "id": "f2",
+      "entity": "claim brought",
+      "role": "START",
+      "value": "2024-04-01",
+      "raw_text": "2024-04-01",
+      "timex_type": "DATE",
+      "sentence": "The claim was brought on 1 April 2024.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2024-04-01"
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}

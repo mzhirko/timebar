@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tdg-chrono"
+version = "0.1.0"
+description = "Bundle of legal documents in, sourced chronology out (XLSX/DOCX/CSV/JSON)"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "tdg-core>=0.1.0,<0.2",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+llm = ["openai>=1.30"]
+nlp = ["spacy>=3.7"]
+pdf = ["pypdf>=4.0"]
+viewer = ["streamlit>=1.30"]
+all = ["tdg-chrono[llm,nlp,pdf,viewer]"]
+
+[project.scripts]
+tdg-chrono = "tdg_chrono.cli:_entry"
+
+[project.entry-points."tdg.extractors"]
+llm = "tdg_extractors.registry:LLMExtractor"
+heideltime = "tdg_extractors.registry:HeidelTimeExtractor"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tdg_chrono", "src/tdg_extractors"]

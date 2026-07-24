@@ -1,0 +1,17 @@
+{
+  "description": "SYNTHETIC EXAMPLE vocabulary for the invented appeal rule.",
+  "anchor_aliases": {
+    "date of the decision": {
+      "plain": [
+        "date of the decision",
+        "the decision",
+        "decision date",
+        "ruling",
+        "date of the ruling"
+      ]
+    }
+  },
+  "action_cues": [
+    "appeal"
+  ]
+}

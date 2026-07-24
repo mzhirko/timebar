@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "document_id": "gold_late",
+  "document_type": "judgment",
+  "source_text": "\u2026",
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "date of the decision",
+      "role": "START",
+      "value": "2025-03-10",
+      "raw_text": "2025-03-10",
+      "timex_type": "DATE",
+      "sentence": "The decision was issued on 10 March 2025.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2025-03-10"
+    },
+    {
+      "id": "f2",
+      "entity": "filing of the appeal",
+      "role": "START",
+      "value": "2025-04-05",
+      "raw_text": "2025-04-05",
+      "timex_type": "DATE",
+      "sentence": "The appeal was filed on 5 April 2025.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2025-04-05"
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}

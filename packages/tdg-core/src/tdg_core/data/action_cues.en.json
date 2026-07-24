@@ -1,0 +1,9 @@
+{
+  "description": "LANGUAGE-layer vocabulary only: generic English procedural words used to bias action selection ('the thing a deadline applies to'). Contains no statute names, no jurisdiction-specific terms, no court-form names. Jurisdiction vocabulary belongs in a rule pack's aliases.json.",
+  "action_cues": ["claim", "complaint", "application", "presented", "present",
+                  "presentation", "filed", "filing", "lodged", "submission",
+                  "submitted", "notice", "request", "proceedings"],
+  "procedural_noise": ["appeal", "hearing", "refusal", "rejection", "grounds",
+                       "judgment", "reconsideration", "grievance",
+                       "confirmation", "response", "witness"]
+}

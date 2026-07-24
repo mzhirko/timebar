@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/tdg/schema/tdg-v1.json",
+  "title": "Temporal Dependency Graph (TDG) v1",
+  "description": "A document's dated facts and the typed temporal constraints between them. The interchange format between extractors, the entailment engine, the cross-document linker, and the chronology builder. Producers may emit extra fields; consumers must ignore fields they do not understand.",
+  "type": "object",
+  "required": ["document_id", "facts", "dependencies"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1(\\.[0-9]+)?$",
+      "description": "Major.minor. Consumers reject unknown majors, tolerate unknown minors."
+    },
+    "document_id": { "type": "string", "minLength": 1 },
+    "document_type": { "type": "string", "default": "unknown" },
+    "source_text": {
+      "type": "string",
+      "description": "Full source text. Optional: bundles with sensitive content may ship offsets plus a source_text_sha256 instead.",
+      "default": ""
+    },
+    "source_text_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the source text, for provenance when source_text itself is externalised."
+    },
+    "facts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fact" }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dependency" }
+    },
+    "edit_scenarios": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "required": ["id", "entity", "role"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "entity": { "type": "string" },
+        "role": { "enum": ["START", "END", "DURATION", "CONTAINS", "UNKNOWN"] },
+        "value": {
+          "type": ["string", "null"],
+          "description": "Normalised ISO date (YYYY-MM-DD), partial date (YYYY-MM / YYYY), or ISO-8601 duration (P30D)."
+        },
+        "raw_text": { "type": "string", "description": "Surface form of the temporal expression." },
+        "timex_type": { "enum": ["DATE", "TIME", "DURATION", "SET"], "default": "DATE" },
+        "sentence": { "type": "string", "description": "Source sentence — the quote carried into chronologies and derivations." },
+        "date_parsed": {
+          "type": ["string", "null"],
+          "format": "date",
+          "description": "Fully resolved calendar date, when value resolves to one."
+        },
+        "duration_days": { "type": ["integer", "null"] },
+        "start_char": { "type": "integer", "minimum": 0, "description": "Offset of the timex in source_text. Provenance: viewers jump here." },
+        "end_char": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0 },
+        "signal_verb": { "type": ["string", "null"] },
+        "signal_prep": { "type": ["string", "null"] },
+        "is_duplicate_of": {
+          "type": ["string", "null"],
+          "description": "Within-document coreference. Flag-don't-drop: duplicates stay in the file, excluded from graph construction."
+        },
+        "temporal_content": {
+          "type": "boolean",
+          "default": true,
+          "description": "False = extractor mis-tagged a non-temporal clause. Kept for auditability; consumers may skip, must not delete."
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "required": ["from_id", "to_id", "constraint_type"],
+      "properties": {
+        "from_id": { "type": "string" },
+        "to_id": { "type": "string" },
+        "constraint_type": { "enum": ["additive", "ordering", "interval", "periodic"] },
+        "constraint_expr": { "type": "string", "description": "Human-readable: \"+3m\", \"start < end\", \"within 30 days of\"." },
+        "delta_days": { "type": ["integer", "null"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0 },
+        "verified": { "type": "boolean", "default": false },
+        "allen_relation": { "type": ["string", "null"] },
+        "corroboration_count": { "type": "integer", "minimum": 1, "default": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "document_id": "limitation1980_s5",
+  "document_type": "statute",
+  "source_text": "An action founded on simple contract shall not be brought after the expiration of six years from the date on which the cause of action accrued.",
+  "facts": [
+    {
+      "id": "r1",
+      "entity": "date on which the cause of action accrued",
+      "role": "START",
+      "value": null,
+      "raw_text": "",
+      "timex_type": "DATE",
+      "sentence": "An action founded on simple contract shall not be brought after the expiration of six years from the date on which the cause of action accrued.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    },
+    {
+      "id": "r2",
+      "entity": "bringing of the action",
+      "role": "END",
+      "value": "P6Y",
+      "raw_text": "P6Y",
+      "timex_type": "DATE",
+      "sentence": "An action founded on simple contract shall not be brought after the expiration of six years from the date on which the cause of action accrued.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0
+    }
+  ],
+  "dependencies": [
+    {
+      "from_id": "r1",
+      "to_id": "r2",
+      "constraint_type": "additive",
+      "constraint_expr": "6 years",
+      "delta_days": null,
+      "confidence": 1.0,
+      "verified": false,
+      "allen_relation": null,
+      "corroboration_count": 1
+    }
+  ],
+  "edit_scenarios": []
+}

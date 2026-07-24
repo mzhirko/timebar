@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "document_id": "gold_indeterminate",
+  "document_type": "judgment",
+  "source_text": "\u2026",
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "board meeting",
+      "role": "START",
+      "value": "2025-06-01",
+      "raw_text": "2025-06-01",
+      "timex_type": "DATE",
+      "sentence": "A board meeting took place on 1 June 2025.",
+      "confidence": 1.0,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2025-06-01"
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "document_id": "dismissal_letter",
+  "document_type": "legal",
+  "source_text": "\u2026",
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "effective date of termination",
+      "role": "END",
+      "value": "2025-07-12",
+      "raw_text": "2025-07-12",
+      "timex_type": "DATE",
+      "sentence": "Your employment terminates with effect from 12 July 2025.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 40,
+      "end_char": 52,
+      "date_parsed": "2025-07-12"
+    },
+    {
+      "id": "f2",
+      "entity": "commencement of employment",
+      "role": "START",
+      "value": "2019-03-03",
+      "raw_text": "2019-03-03",
+      "timex_type": "DATE",
+      "sentence": "You commenced employment with the company on 3 March 2019.",
+      "confidence": 0.9,
+      "signal_verb": null,
+      "signal_prep": null,
+      "temporal_content": true,
+      "start_char": 0,
+      "end_char": 0,
+      "date_parsed": "2019-03-03"
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}
