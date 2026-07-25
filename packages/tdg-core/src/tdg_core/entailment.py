@@ -16,10 +16,11 @@ Design principles (no hardcoded statute knowledge):
     filing) are matched in the instance by entity/sentence similarity — the
     same general matcher used across the pipeline — never by a hardcoded
     entity name.
-  - Optional ACAS-style "stop the clock" early-conciliation pause (UK
-    ERA s.207B) is applied when the instance provides Day A / Day B, including
-    the one-month floor. This is a general "limit extended by a paused period"
-    mechanism, parameterised by the instance, not specific to one statute.
+  - A limit can be extended by a period the statute does not count against
+    it (a "tolled" period). The engine implements only the shape: a start, an
+    end, and an optional floor after the end. Which step qualifies, what it
+    is called and whether a floor applies are declared by the rule pack, so
+    no jurisdiction's version of the mechanism lives here.
 
 The s.111 cases are reproduced because the statute TEXT encodes the rule, not
 because the rule is written into this file.
@@ -205,7 +206,7 @@ class EntailmentResult:
     verdict: Verdict
     explanation: str
     match_confidence: float
-    acas_applied: bool = False
+    tolling_applied: bool = False
     # Structured derivation (Phase 1.6): every input the answer was built
     # from, including what was assumed vs discovered and what was passed
     # over. Rendered by tdg_core.trace; the trace IS the product (D3).
@@ -474,12 +475,19 @@ def register_aliases(concept, plain, end_role_only=None) -> None:
 def load_alias_dict(data: dict, *, replace: bool = False,
                     source: str = "<dict>") -> None:
     global _ACTION_CUES, _PROCEDURAL_NOISE
+    from tdg_core.embeddings import register_entity_boilerplate
     if replace:
-        _ANCHOR_ALIASES.clear()
-        _ACTION_CUES = ()
-        _PROCEDURAL_NOISE = ()
-        _ALIAS_SOURCES.clear()
+        _clear_vocabulary()
     _ALIAS_SOURCES.append(source)
+    # A period the statute does not count against its own limit, e.g. a
+    # prescribed conciliation or notification step. The engine implements the
+    # shape; which statute provides it is the pack's business.
+    if "tolling" in data:
+        register_tolling(data.get("tolling"), source=source)
+    # Statute titles and similar fixed phrasing that a pack wants ignored when
+    # comparing entity names. Lives here rather than in code so a jurisdiction
+    # can be added without touching the engine.
+    register_entity_boilerplate(data.get("entity_boilerplate", []), source=source)
     for concept, sets in data.get("anchor_aliases", {}).items():
         register_aliases(concept, sets.get("plain", []), sets.get("end_role_only", []))
     _ACTION_CUES = tuple(dict.fromkeys(
@@ -488,12 +496,53 @@ def load_alias_dict(data: dict, *, replace: bool = False,
         _PROCEDURAL_NOISE + tuple(c.lower() for c in data.get("procedural_noise", []))))
 
 
+def _clear_vocabulary() -> None:
+    """Drop every loaded vocabulary, language layer included.
+
+    One place, so anything added to the module's global vocabulary state has
+    a single spot to be cleared from.
+    """
+    global _ACTION_CUES, _PROCEDURAL_NOISE
+    from tdg_core.embeddings import clear_entity_boilerplate
+    _ANCHOR_ALIASES.clear()
+    _ACTION_CUES = ()
+    _PROCEDURAL_NOISE = ()
+    _ALIAS_SOURCES.clear()
+    clear_entity_boilerplate()
+    register_tolling(None)
+
+
+def reset_vocabulary() -> None:
+    """Return to a freshly-started engine: language defaults, no rule pack."""
+    _clear_vocabulary()
+    _load_default_aliases()
+
+
 def load_alias_file(path, *, replace: bool = False) -> None:
     """Load a rule pack's aliases.json on top of (or instead of) the defaults."""
     import json as _json
     from pathlib import Path as _Path
     load_alias_dict(_json.loads(_Path(path).read_text()), replace=replace,
                     source=str(path))
+
+
+def use_rulepack_vocabulary(path) -> None:
+    """Install exactly one rule pack's vocabulary, discarding any other's.
+
+    Rule pack vocabulary is global and additive, which is right while a pack
+    is being composed and wrong when two packs are used in one process. A
+    long-running caller — the viewer, or a script checking a bundle against
+    several statutes — otherwise accumulates concepts, action cues and
+    boilerplate from every pack it has touched, and a tolling rule declared
+    by one statute stays installed while a statute that grants no such
+    extension is checked. That silently moves a deadline.
+
+    Callers that check one pack at a time should use this rather than
+    load_alias_file. Composing several packs deliberately is still possible
+    with repeated load_alias_file calls.
+    """
+    reset_vocabulary()
+    load_alias_file(path)
 
 
 def _load_default_aliases() -> None:
@@ -630,33 +679,94 @@ def _select_action(
     return f, 0.2, "latest-fallback", scored
 
 
-# ─── ACAS / early-conciliation pause (UK ERA s.207B) ──────────────────────
+# ─── Tolling: a period that does not count toward a limit ────────────────
+#
+# Many limitation regimes suspend the clock while some prescribed step is
+# under way. The engine implements the *shape* of that rule and nothing
+# about any particular statute: a start, an end, and an optional floor
+# expressed as a period after the end. Which statute it belongs to, what
+# the step is called and whether a floor applies are declared by the rule
+# pack, alongside its vocabulary.
+#
+# The bundled UK employment pack declares one instance of this in its
+# aliases.json. Deliberately not named here: an isolation test asserts that
+# no statute appears anywhere in engine source, including comments.
 
-def _apply_conciliation(
+@dataclass
+class TollingRule:
+    """How a suspended period affects a deadline, as declared by a pack."""
+
+    label: str = "tolled period"
+    authority: str = ""
+    # Minimum time between the end of the suspension and the deadline, as an
+    # ISO 8601 duration ("P1M"). Empty means no floor: the deadline simply
+    # moves out by the suspended length.
+    floor_after_end: str = ""
+    # Whether a suspension beginning after the deadline has already passed
+    # confers any benefit. Every regime seen so far says no.
+    applies_after_expiry: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TollingRule":
+        return cls(
+            label=str(data.get("label", "tolled period")),
+            authority=str(data.get("authority", "")),
+            floor_after_end=str(data.get("floor_after_end", "")),
+            applies_after_expiry=bool(data.get("applies_after_expiry", False)),
+        )
+
+
+_TOLLING: Optional[TollingRule] = None
+
+
+def register_tolling(data: Optional[dict], *, source: str = "<dict>") -> None:
+    """Install (or clear) the tolling rule declared by a rule pack."""
+    global _TOLLING
+    _TOLLING = TollingRule.from_dict(data) if data else None
+
+
+def active_tolling() -> Optional[TollingRule]:
+    """The tolling rule currently in force, if a pack declared one."""
+    return _TOLLING
+
+
+def _parse_iso_period(text: str):
+    """Read 'P1M', 'P21D', 'P2Y' into a relativedelta. None if unreadable."""
+    m = re.fullmatch(r"P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?",
+                     (text or "").strip().upper())
+    if not m or not any(m.groups()):
+        return None
+    years, months, weeks, days = (int(g) if g else 0 for g in m.groups())
+    return relativedelta(years=years, months=months, weeks=weeks, days=days)
+
+
+def _apply_tolling(
     deadline: date,
-    day_a: Optional[date],
-    day_b: Optional[date],
+    start: Optional[date],
+    end: Optional[date],
+    rule: Optional[TollingRule] = None,
 ) -> tuple[date, bool]:
-    """Extend a deadline by a paused conciliation period.
+    """Push a deadline out by a period that does not count against it.
 
-    Implements the ERA s.207B mechanism generally:
-      - the period from the day after Day A to Day B is not counted
-        (deadline pushed out by that many days);
-      - floor: if the (unextended) limit would expire between Day A and one
-        month after Day B, it expires one month after Day B instead.
-    If Day A is on/after the original deadline, conciliation gives no benefit.
-    Returns (effective_deadline, applied?).
+    The period from the day after ``start`` up to and including ``end`` is
+    not counted. Where the pack declares a floor, the deadline additionally
+    cannot fall earlier than that period after ``end``.
+
+    Returns (effective_deadline, whether it was applied).
     """
-    if day_a is None or day_b is None:
+    if start is None or end is None:
         return deadline, False
-    if day_a >= deadline:
-        # contacted ACAS after the limit already expired -> no freeze
+    rule = rule or _TOLLING or TollingRule()
+    if start >= deadline and not rule.applies_after_expiry:
+        # The suspension began after the limit had already run out.
         return deadline, False
-    paused_days = (day_b - day_a).days  # days after Day A up to and incl Day B
-    extended = deadline + timedelta(days=paused_days)
-    one_month_after_b = day_b + relativedelta(months=1)
-    if extended < one_month_after_b:
-        extended = one_month_after_b
+
+    extended = deadline + timedelta(days=(end - start).days)
+    floor = _parse_iso_period(rule.floor_after_end)
+    if floor is not None:
+        earliest = end + floor
+        if extended < earliest:
+            extended = earliest
     return extended, True
 
 
@@ -667,8 +777,8 @@ def check_entailment(
     instance_tdg: TemporalDependencyGraph,
     embedder: Optional[EmbeddingSimilarity] = None,
     minus_one_day: Optional[bool] = None,
-    acas_day_a: Optional[date] = None,
-    acas_day_b: Optional[date] = None,
+    tolled_from: Optional[date] = None,
+    tolled_to: Optional[date] = None,
 ) -> list[EntailmentResult]:
     """Check whether instance_tdg satisfies each temporal rule in rule_tdg.
 
@@ -696,7 +806,7 @@ def check_entailment(
             },
         ) for r in rules]
     return [
-        _check_single_rule(r, dated, instance_tdg, embedder, acas_day_a, acas_day_b)
+        _check_single_rule(r, dated, instance_tdg, embedder, tolled_from, tolled_to)
         for r in rules
     ]
 
@@ -798,15 +908,18 @@ def _check_single_rule(
     }
 
     deadline_base = rule.offset.apply(anchor_date)
-    deadline, acas_applied = _apply_conciliation(deadline_base, day_a, day_b)
+    tolling = active_tolling()
+    deadline, tolling_applied = _apply_tolling(deadline_base, day_a, day_b, tolling)
     trace["arithmetic"] = {
         "anchor_date": anchor_date.isoformat(),
         "deadline_base": deadline_base.isoformat(),
         "deadline_effective": deadline.isoformat(),
     }
-    if acas_applied:
-        trace["conciliation"] = {
-            "day_a": day_a.isoformat(), "day_b": day_b.isoformat(),
+    if tolling_applied:
+        trace["tolling"] = {
+            "label": (tolling.label if tolling else "tolled period"),
+            "authority": (tolling.authority if tolling else ""),
+            "start": day_a.isoformat(), "end": day_b.isoformat(),
             "extension_days": (deadline - deadline_base).days,
         }
 
@@ -847,7 +960,7 @@ def _check_single_rule(
     explanation = (
         f"anchor={normalise_entity(anchor_fact.entity)} ({anchor_date.isoformat()})"
         f" + [{rule.description.split('= ',1)[-1]}] = deadline {deadline.isoformat()}"
-        f"{' (conciliation-extended)' if acas_applied else ''}. "
+        f"{' (tolled)' if tolling_applied else ''}. "
         f"action={normalise_entity(action_fact.entity)} ({action_date.isoformat()}, "
         f"via {how}) -> {abs(days_over)}d "
         f"{'after' if days_over > 0 else 'before/at'} deadline -> {verdict}"
@@ -861,5 +974,5 @@ def _check_single_rule(
         deadline_computed=deadline.isoformat(),
         action_date=action_date.isoformat(),
         days_over=days_over, verdict=verdict, explanation=explanation,
-        match_confidence=match_conf, acas_applied=acas_applied, trace=trace,
+        match_confidence=match_conf, tolling_applied=tolling_applied, trace=trace,
     )

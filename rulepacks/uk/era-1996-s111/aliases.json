@@ -1,5 +1,12 @@
 {
   "description": "UK concept vocabulary for this pack. Loaded only when this pack is used; the engine ships with no jurisdiction vocabulary.",
+  "entity_boilerplate": ["\\s*(?:of\\s+)?the\\s+Employment\\s+Rights\\s+Act\\s+\\d{4}\\s*"],
+  "tolling": {
+    "label": "early conciliation",
+    "authority": "ERA 1996 s.207B",
+    "floor_after_end": "P1M",
+    "applies_after_expiry": false
+  },
   "provenance": {
     "effective date of termination": "ERA 1996 s.97 defines the EDT; judgments write it as dismissal/termination.",
     "date of the act": "EqA 2010 s.123(1)(a); s.123(3)(a): conduct extending over a period is treated as done at its END."

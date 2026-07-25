@@ -12,3 +12,17 @@ tracie/
 lextime*.csv
 _targets/
 _build/
+
+# local scratch and testing artifacts — never commit
+.claude/
+demo-case/
+demo-case-llm/
+demo-full/
+mixed-bundle/
+mixed-tdgs/
+my-real-bundle/
+timebar-workspace/
+corr.json
+PATCH-NOTES.md
+TODO.md
+*.patch

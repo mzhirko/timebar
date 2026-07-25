@@ -1,0 +1,13 @@
+{
+  "description": "LANGUAGE-layer vocabulary only: English honorifics and organisation-form suffixes, stripped from party names before comparing them. Contains no party names, no jurisdiction terms, no case data. Two documents naming 'Ms A. Okafor' and 'Okafor' are about the same person; two naming 'Ms A. Smith' and 'Ms B. Jones' are not, and only the shared honorific would suggest otherwise. Within-bundle document frequency cannot separate these at small bundle sizes — with two documents a title and a surname are equally frequent — so the distinction is stated here rather than inferred.",
+  "person_titles": ["mr", "mrs", "ms", "miss", "mx", "dr", "prof", "professor",
+                    "sir", "dame", "lord", "lady", "rev", "hon", "judge",
+                    "justice", "master", "messrs"],
+  "org_suffixes": ["ltd", "limited", "plc", "llp", "llc", "inc", "incorporated",
+                   "corp", "corporation", "company", "co", "group", "holdings",
+                   "partnership", "trust", "foundation", "association",
+                   "gmbh", "ag", "sa", "sarl", "bv", "nv", "ab", "as", "oy",
+                   "spa", "srl", "pty", "kk"],
+  "generic": ["the", "and", "of", "for", "estate", "trading", "formerly",
+              "trustees", "executors", "others", "anor", "ors"]
+}

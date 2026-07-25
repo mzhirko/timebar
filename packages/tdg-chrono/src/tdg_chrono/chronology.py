@@ -191,6 +191,64 @@ def _fact_precision(f: TemporalFact) -> Precision:
 
 _PRECISION_RANK = {"day": 0, "month": 1, "year": 2, "relative": 3, "none": 4}
 
+
+def _value_interval(f: TemporalFact) -> Optional[tuple[date, date]]:
+    """The span of time a fact's value could denote.
+
+    A day is a point, a month or a year is the whole period it names. Coarse
+    values are intervals rather than unknowns, which is what lets a
+    refinement be told apart from a contradiction: "July 2025" and
+    "14 July 2025" are consistent, while "2019" and "2020" are not.
+    """
+    if f.timex.date_parsed:
+        return (f.timex.date_parsed, f.timex.date_parsed)
+    v = (f.timex.value or "").strip()
+    if _MONTH_RE.match(v):
+        y, m = int(v[:4]), int(v[5:7])
+        last = date(y + (m == 12), (m % 12) + 1, 1) - timedelta(days=1)
+        return (date(y, m, 1), last)
+    if _YEAR_RE.match(v):
+        return (date(int(v), 1, 1), date(int(v), 12, 31))
+    return None
+
+
+def _conflicting_values(facts: list[TemporalFact]) -> list[tuple[str, list[str]]]:
+    """Mutually incompatible values within one cluster, as (value, doc_ids).
+
+    Disagreement used to be detected only between two fully-parsed dates, so
+    a cluster holding "2019" and "2020", or a 14-day and a 21-day notice
+    period, was reported as *agreed* — an assurance the sources do not
+    support. Values are compared as intervals, and durations by length, so a
+    coarser value refined by a finer one stays agreed while genuinely
+    disjoint claims are surfaced.
+    """
+    intervals: list[tuple[TemporalFact, tuple[date, date]]] = []
+    durations: list[tuple[TemporalFact, int]] = []
+    for f in facts:
+        iv = _value_interval(f)
+        if iv:
+            intervals.append((f, iv))
+        elif f.timex.duration_days is not None:
+            durations.append((f, f.timex.duration_days))
+
+    def disjoint(a, b) -> bool:
+        return a[1] < b[0] or b[1] < a[0]
+
+    conflicting: dict[str, set[str]] = {}
+    for i, (fa, ia) in enumerate(intervals):
+        for fb, ib in intervals[i + 1:]:
+            if disjoint(ia, ib):
+                for f in (fa, fb):
+                    conflicting.setdefault(
+                        f.timex.value or f.timex.text, set())
+    for i, (fa, da) in enumerate(durations):
+        for fb, db in durations[i + 1:]:
+            if da != db:
+                for f in (fa, fb):
+                    conflicting.setdefault(
+                        f.timex.value or f.timex.text, set())
+    return [(v, sorted(docs)) for v, docs in conflicting.items()]
+
 _ROLE_LABEL = {"START": "start", "END": "end", "DURATION": "duration",
                "CONTAINS": "", "UNKNOWN": ""}
 
@@ -212,6 +270,69 @@ def _partial_to_date(value: str) -> Optional[date]:
     return None
 
 
+# ─── Relative expressions ─────────────────────────────────────────────────
+
+def resolve_relative_dates(
+    tdgs: dict[str, TemporalDependencyGraph],
+) -> tuple[dict[str, TemporalDependencyGraph], dict[FactKey, str]]:
+    """Compute dates reachable by arithmetic, before anything is linked.
+
+    "The response is due within 28 days of service" carries no date of its
+    own, so it could never be compared with another document's "the response
+    was due on 3 November" — the two never met, and a real contradiction went
+    unreported. Derivation already existed but ran *after* clustering, once
+    the chance to link had passed.
+
+    Running it first makes derived dates first-class for linking and dispute
+    detection. Only fully determined arithmetic is used: a dated anchor and a
+    readable offset. Sources are never mutated — the graphs are copied — and
+    every derived value carries the working that produced it, because a date
+    the reader cannot find in any document has to explain itself.
+    """
+    import copy
+
+    resolved = {k: copy.deepcopy(v) for k, v in tdgs.items()}
+    derivations: dict[FactKey, str] = {}
+
+    # Chains resolve over successive passes: A dates B, then B dates C.
+    # Bounded by fact count, since each pass must date at least one new fact.
+    for _ in range(max((len(t.facts) for t in resolved.values()), default=0) + 1):
+        progress = False
+        for doc_id, tdg in resolved.items():
+            by_id = {f.id: f for f in tdg.facts}
+            for dep in tdg.dependencies:
+                if dep.constraint_type != "additive":
+                    continue
+                anchor = by_id.get(dep.from_id)
+                target = by_id.get(dep.to_id)
+                if anchor is None or target is None:
+                    continue
+                if target.timex.date_parsed or not anchor.timex.date_parsed:
+                    continue
+
+                offset = _offset_from_text(dep.constraint_expr or "")
+                if offset is not None:
+                    placed = offset.apply(anchor.timex.date_parsed)
+                    how = f"'{dep.constraint_expr}'"
+                elif dep.delta_days is not None:
+                    placed = anchor.timex.date_parsed + timedelta(days=dep.delta_days)
+                    how = f"delta_days={dep.delta_days}"
+                else:
+                    continue
+
+                target.timex.date_parsed = placed
+                target.timex.value = placed.isoformat()
+                derivations[(doc_id, target.id)] = (
+                    f"{placed.isoformat()} = {anchor.timex.date_parsed.isoformat()} "
+                    f"({anchor.entity} [{doc_id}/{anchor.id}]) + {how}; "
+                    f"stated in: \"{(anchor.sentence or '')[:160]}\"")
+                progress = True
+        if not progress:
+            break
+
+    return resolved, derivations
+
+
 # ─── Core builder ─────────────────────────────────────────────────────────
 
 def build_chronology(
@@ -222,6 +343,8 @@ def build_chronology(
     overrides: Optional[MergeOverrides] = None,
     derive_undated: bool = True,
     meta: Optional[dict] = None,
+    composed_linking: bool = True,
+    embedder=None,
 ) -> Chronology:
     """Build a single chronology from per-document TDGs.
 
@@ -234,9 +357,32 @@ def build_chronology(
             top of automatic clustering every run.
         derive_undated: place undated facts via additive dependencies
             from dated ones, marked status="derived".
+        composed_linking: link facts by evidence composition (see
+            tdg_core.linking) rather than the two hard AND-gates. The gated
+            path requires entity-name *and* sentence-overlap floors to be
+            cleared independently, so a poor quote — whatever the extractor
+            happened to emit — vetoes an otherwise sound match.
+        embedder: optional semantic similarity for entity names, letting
+            paraphrases link that no lexical measure can reach
+            ("termination" vs "dismissal"). Any object with
+            similarity(a, b) -> float works; failures fall back to lexical
+            scoring rather than breaking the run.
     """
+    # Resolve what arithmetic can before linking, so a relative expression is
+    # comparable with another document's explicit date instead of sitting
+    # unplaced and unexamined.
+    pre_derived: dict[FactKey, str] = {}
+    if derive_undated:
+        tdgs, pre_derived = resolve_relative_dates(tdgs)
+
+    # Which quotes could actually be located in their own document's text.
+    # Checked before anything is merged, so corroboration can be judged.
+    from tdg_core.provenance import check_bundle, unverified_keys
+    provenance = check_bundle(tdgs)
+    unverified = unverified_keys(provenance)
+
     if links is None:
-        linker = CrossDocLinker()
+        linker = CrossDocLinker(composed=composed_linking, embedder=embedder)
         for t in tdgs.values():
             linker.add_tdg(t)
         links = linker.find_coreferences() + linker.find_contradictions()
@@ -359,13 +505,53 @@ def build_chronology(
             ))
             continue
 
+        # Disagreements that are not two parsed dates: coarse values that
+        # cannot both be true, or notice periods of different lengths.
+        value_conflicts = _conflicting_values(only_facts)
+        if value_conflicts and len(by_date) < 2:
+            by_value: dict[str, list[str]] = {}
+            for k, f in facts:
+                v = f.timex.value or f.timex.text
+                if any(v == cv for cv, _ in value_conflicts):
+                    by_value.setdefault(v, []).append(k[0])
+            best = min(only_facts,
+                       key=lambda f: _PRECISION_RANK[_fact_precision(f)])
+            placed = (best.timex.date_parsed
+                      or _partial_to_date(best.timex.value or ""))
+            events.append(ChronologyEvent(
+                event_id=event_id,
+                date=placed,
+                precision=_fact_precision(best),
+                label=label,
+                sources=sources,
+                status="disputed",
+                disputed_values=[
+                    DisputedValue(value=v, date_parsed=None,
+                                  doc_ids=sorted(set(docs)))
+                    for v, docs in sorted(by_value.items())],
+                confidence=confidence,
+            ))
+            continue
+
         if len(by_date) == 1:
             d = next(iter(by_date))
-            n_docs = len({k[0] for k, _ in [(k, f) for k, f in facts]})
+            # "agreed" tells the reader two documents independently say this,
+            # which is a reason to look less hard. It may only rest on facts
+            # whose quotes were actually found in their own source text: a
+            # quote nobody can check is not corroboration, and labelling it
+            # as such is worse than saying nothing.
+            checked_docs = {k[0] for k, _ in facts if k not in unverified}
+            n_docs = len(checked_docs)
             status: Status = "agreed" if len(sources) > 1 and n_docs > 1 else "single_source"
+            # A date no document states outright must show its working, even
+            # when it agrees with everything around it.
+            working = [pre_derived[k] for k in cluster if k in pre_derived]
+            if working and len(working) == len(cluster):
+                status = "derived"
             events.append(ChronologyEvent(
                 event_id=event_id, date=d, precision="day", label=label,
                 sources=sources, status=status, confidence=confidence,
+                derivation="; ".join(working) if working else None,
             ))
             continue
 
@@ -403,7 +589,14 @@ def build_chronology(
         "events": len(events),
         "disputed": chron.disputed_count,
         "unplaced": len(unplaced),
+        "unverified_quotes": len(unverified),
     })
+    chron.meta.setdefault("provenance", {
+        doc_id: {"has_source_text": rep.has_source_text,
+                 "facts": rep.total,
+                 "quotes_checked": len(rep.supported),
+                 "quotes_unverified": sorted(rep.unsupported)}
+        for doc_id, rep in provenance.items()})
     return chron
 
 

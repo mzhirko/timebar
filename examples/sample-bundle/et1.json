@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "document_id": "et1",
   "document_type": "legal",
-  "source_text": "\u2026",
+  "source_text": "EMPLOYMENT TRIBUNAL - CLAIM FORM (ET1)\n\nClaimant: Ms Rowe\nRespondent: Ashvale Components Ltd\n\nSection 5 - Details of claim\n\nThe claimant's employment terminated with effect from 14 July 2025.\n\nThe claim was presented to the tribunal on 1 October 2025.\n\nThe claim was served on the respondent on 6 October 2025.\n\nThe response is due within 28 days of service of the claim.\n",
   "facts": [
     {
       "id": "f1",
@@ -16,8 +16,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": true,
-      "start_char": 0,
-      "end_char": 0,
+      "start_char": 124,
+      "end_char": 191,
       "date_parsed": "2025-07-14"
     },
     {
@@ -32,8 +32,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": true,
-      "start_char": 0,
-      "end_char": 0,
+      "start_char": 193,
+      "end_char": 251,
       "date_parsed": "2025-10-01"
     },
     {
@@ -48,8 +48,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": true,
-      "start_char": 0,
-      "end_char": 0
+      "start_char": 312,
+      "end_char": 371
     },
     {
       "id": "f5",
@@ -63,8 +63,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": true,
-      "start_char": 0,
-      "end_char": 0,
+      "start_char": 253,
+      "end_char": 310,
       "date_parsed": "2025-10-06"
     }
   ],

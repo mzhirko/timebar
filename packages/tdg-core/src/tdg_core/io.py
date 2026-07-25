@@ -45,6 +45,7 @@ def build_tdg(
     document_id: Optional[str] = None,
     document_type: Optional[str] = None,
     max_source_text: int = 0,
+    matter_field: str = "matter",
 ) -> TemporalDependencyGraph:
     """Build a TemporalDependencyGraph from a JSON-like dict.
 
@@ -56,6 +57,10 @@ def build_tdg(
         document_id: override for data["document_id"]
         document_type: override for data["document_type"]
         max_source_text: truncate source_text to this many chars (0 = keep all)
+        matter_field: which key carries the matter identifier. Configurable
+            because what identifies a matter differs by practice — a case
+            number, a claimant, an internal file reference — and none of them
+            should be assumed.
     """
     ver = str(data.get("schema_version", SCHEMA_VERSION))
     if ver.split(".")[0] != SCHEMA_VERSION.split(".")[0]:
@@ -108,12 +113,19 @@ def build_tdg(
     if max_source_text > 0:
         source_text = source_text[:max_source_text]
 
+    matter = data.get(matter_field)
+    raw_parties = data.get("parties") or []
+    if isinstance(raw_parties, str):
+        raw_parties = [raw_parties]
+    parties = [str(p).strip() for p in raw_parties if str(p).strip()]
     return TemporalDependencyGraph(
         document_id=doc_id,
         document_type=doc_type,
         source_text=source_text,
         facts=facts,
         dependencies=deps,
+        matter=str(matter) if matter is not None else None,
+        parties=parties,
     )
 
 

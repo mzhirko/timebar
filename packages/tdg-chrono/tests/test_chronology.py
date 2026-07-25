@@ -29,10 +29,23 @@ def _fact(fid, entity, role, sentence, value=None, parsed=None,
         sentence=sentence, confidence=conf, temporal_content=temporal)
 
 
+def _document(*sentences: str) -> str:
+    """A document body containing the sentences its facts quote.
+
+    The fixtures used to set source_text to a single ellipsis, which made
+    every quote in them unverifiable, and the suite then asserted "agreed"
+    on that. A test bundle should look like the thing it stands in for.
+    """
+    return "\n\n".join(sentences) + "\n"
+
+
 @pytest.fixture()
 def bundle():
     letter = TemporalDependencyGraph(
-        document_id="dismissal_letter", document_type="legal", source_text="…",
+        document_id="dismissal_letter", document_type="legal",
+        source_text=_document(
+            "Your employment terminates with effect from 12 July 2025.",
+            "You commenced employment with the company on 3 March 2019."),
         facts=[
             _fact("f1", "effective date of termination", "END",
                   "Your employment terminates with effect from 12 July 2025.",
@@ -42,7 +55,12 @@ def bundle():
                   value="2019-03-03", parsed=date(2019, 3, 3)),
         ])
     et1 = TemporalDependencyGraph(
-        document_id="et1", document_type="legal", source_text="…",
+        document_id="et1", document_type="legal",
+        source_text=_document(
+            "The claimant's employment terminated with effect from 14 July 2025.",
+            "The claim was presented to the tribunal on 1 October 2025.",
+            "The response is due within 28 days of service of the claim.",
+            "The claim was served on the respondent on 6 October 2025."),
         facts=[
             _fact("f1", "effective date of termination", "END",
                   "The claimant's employment terminated with effect from 14 July 2025.",
@@ -64,7 +82,10 @@ def bundle():
                                delta_days=28),
         ])
     response = TemporalDependencyGraph(
-        document_id="grounds_of_resistance", document_type="legal", source_text="…",
+        document_id="grounds_of_resistance", document_type="legal",
+        source_text=_document(
+            "The claimant commenced employment with the company on 3 March 2019.",
+            "The respondent denies each and every allegation."),
         facts=[
             _fact("f1", "commencement of employment", "START",
                   "The claimant commenced employment with the company on 3 March 2019.",

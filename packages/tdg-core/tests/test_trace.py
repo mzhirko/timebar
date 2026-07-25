@@ -103,14 +103,44 @@ def test_indeterminate_is_diagnosis_with_request(statute):
     assert "cannot answer" in text and "→" in text
 
 
-def test_conciliation_extension_in_trace(statute, case):
+def test_tolled_period_extension_in_trace(statute, case):
+    """A period the statute does not count against its own limit.
+
+    The engine implements the shape; which statute provides it, and what it
+    is called, come from the rule pack. UK early conciliation is one
+    instance and is no longer named in the engine.
+    """
+    from tdg_core.entailment import TollingRule, register_tolling
+
+    register_tolling({"label": "early conciliation",
+                      "authority": "ERA 1996 s.207B",
+                      "floor_after_end": "P1M"})
+    try:
+        (r,) = check_entailment(statute, case,
+                                tolled_from=date(2025, 8, 1),
+                                tolled_to=date(2025, 8, 21))
+        assert r.tolling_applied
+        c = r.trace["tolling"]
+        assert c["extension_days"] >= 20
+        assert c["label"] == "early conciliation"
+        text = render_text(r)
+        assert "clock paused" in text
+        assert "ERA 1996 s.207B" in text
+    finally:
+        register_tolling(None)
+
+
+def test_engine_names_no_statute_for_tolling(statute, case):
+    """With no pack declaring one, the trace stays jurisdiction-neutral."""
+    from tdg_core.entailment import register_tolling
+
+    register_tolling(None)
     (r,) = check_entailment(statute, case,
-                            acas_day_a=date(2025, 8, 1),
-                            acas_day_b=date(2025, 8, 21))
-    assert r.acas_applied
-    c = r.trace["conciliation"]
-    assert c["extension_days"] >= 20
-    assert "clock paused" in render_text(r)
+                            tolled_from=date(2025, 8, 1),
+                            tolled_to=date(2025, 8, 21))
+    assert r.tolling_applied
+    assert r.trace["tolling"]["label"] == "tolled period"
+    assert "conciliation" not in render_text(r).lower()
 
 
 def test_html_renders(statute, case):

@@ -221,11 +221,24 @@ class CrossDocLinker:
         similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
         sentence_threshold: float = 0.2,
         embedder: Optional[EmbeddingSimilarity] = None,
+        composed: bool = False,
     ):
+        """
+        Args:
+            composed: use evidence composition (tdg_core.linking) instead of
+                the two hard AND-gates. The gated path requires entity name
+                *and* sentence overlap to clear independent floors, so one
+                poor signal — usually the quote, which is whatever the
+                extractor emitted — vetoes a correct link. Composition
+                weighs the same signals plus temporal proximity, lowers the
+                bar for documents established to concern the same matter,
+                and resolves competition one-to-one.
+        """
         self.tdgs: dict[str, TemporalDependencyGraph] = {}
         self.similarity_threshold = similarity_threshold
         self.sentence_threshold = sentence_threshold
         self._embedder = embedder
+        self.composed = composed
 
     def add_tdg(self, tdg: TemporalDependencyGraph) -> None:
         self.tdgs[tdg.document_id] = tdg
@@ -264,7 +277,15 @@ class CrossDocLinker:
         Both signals must be present. Entity name alone produces false
         matches ("agreement" appears in 23/45 EU contracts but refers to
         different agreements). Sentence overlap confirms the match.
+
+        With composed=True this is replaced by evidence composition, where
+        that same observation is handled by measuring how discriminative a
+        word is in the bundle at hand rather than by requiring a second
+        signal to clear a fixed floor.
         """
+        if self.composed:
+            return self._find_coreferences_composed()
+
         links = []
         seen = set()
 
@@ -345,6 +366,42 @@ class CrossDocLinker:
 
         return links
 
+    def _find_coreferences_composed(self) -> list[CrossDocLink]:
+        """Coreference via tdg_core.linking.
+
+        Emits contradiction links directly for matched pairs whose dates
+        disagree: once two facts are established as the same event, a
+        difference in their dates *is* the dispute, and no separate
+        sentence-overlap test is needed to decide whether they ought to
+        have agreed.
+        """
+        from tdg_core.linking import EventLinker
+
+        linker = EventLinker(self.tdgs, embedder=self._embedder)
+        self.last_linker = linker
+        links: list[CrossDocLink] = []
+        for doc_a, fa, doc_b, fb, ev, rel in linker.link_all():
+            val_a = fa.timex.value or (fa.timex.date_parsed.isoformat()
+                                       if fa.timex.date_parsed else None)
+            val_b = fb.timex.value or (fb.timex.date_parsed.isoformat()
+                                       if fb.timex.date_parsed else None)
+            match, delta = _values_match(fa, fb)
+            contradicts = delta is not None and not match
+            links.append(CrossDocLink(
+                link_type="contradiction" if contradicts else "coreference",
+                from_doc=doc_a, from_fact=fa.id,
+                to_doc=doc_b, to_fact=fb.id,
+                confidence=ev.score,
+                explanation=(
+                    f"{'Conflicting values' if contradicts else 'Same event'} "
+                    f"for {fa.entity!r} / {fb.entity!r} ({fa.role})"
+                    f"{f': {val_a} vs {val_b} (Δ{delta}d)' if contradicts else ''}"
+                    f" [{ev}; documents: {rel.explanation}]"
+                ),
+                value_a=val_a, value_b=val_b, delta_days=delta,
+            ))
+        return links
+
     # ── Contradiction detection ────────────────────────────────────────
 
     def find_contradictions(self) -> list[CrossDocLink]:
@@ -361,6 +418,13 @@ class CrossDocLinker:
         This replaces the old document-type classification (INSTANCE_DOC_TYPES)
         with a signal derived from the data itself.
         """
+        if self.composed:
+            # Composition emits contradictions alongside coreference, from a
+            # single matching pass — a matched pair with disagreeing dates is
+            # the contradiction. Re-running the gated detector here would
+            # double-report them under different confidences.
+            return []
+
         links = []
         seen = set()
 

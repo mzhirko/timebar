@@ -67,12 +67,14 @@ def render_text(result: "EntailmentResult") -> str:
     ar = t.get("arithmetic")
     if ar:
         w("")
-        if "conciliation" in t:
-            c = t["conciliation"]
+        if "tolling" in t:
+            c = t["tolling"]
+            label = c.get("label") or "tolled period"
+            authority = f" ({c['authority']})" if c.get("authority") else ""
             w(f"Deadline: {ar['anchor_date']} + {_offset_phrase(off)} "
               f"= {ar['deadline_base']}")
-            w(f"  early conciliation Day A {c['day_a']} → Day B {c['day_b']}: "
-              f"clock paused, +{c['extension_days']}d → "
+            w(f"  {label}{authority} {c['start']} to {c['end']}: "
+              f"clock paused, +{c['extension_days']}d, "
               f"effective deadline {ar['deadline_effective']}")
         else:
             w(f"Deadline: {ar['anchor_date']} + {_offset_phrase(off)} "
@@ -102,7 +104,7 @@ def render_text(result: "EntailmentResult") -> str:
         w(f"Result: the action ({result.action_date}) falls {rel} "
           f"({result.deadline_computed}).")
         w(f"  match confidence {result.match_confidence:.2f}"
-          + (" · conciliation extension applied" if result.acas_applied else ""))
+          + (", tolled period applied" if result.tolling_applied else ""))
     return "\n".join(out)
 
 

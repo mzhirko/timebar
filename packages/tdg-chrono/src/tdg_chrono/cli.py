@@ -22,17 +22,38 @@ from tdg_chrono.corrections import (Correction, append_correction,
                                     apply_corrections, export_gold,
                                     load_corrections, mark_confirmed)
 from tdg_chrono.exports import EXPORTERS
-from tdg_chrono.loaders import load_document_text
+from tdg_chrono.loaders import load_document_raw, process_with_report
 from tdg_chrono import capabilities
 
 DEFAULT_FORMATS = ["xlsx", "csv", "json"]
 
 
-def _load_tdg_bundle(folder: Path) -> tuple[dict[str, TemporalDependencyGraph], list[str]]:
+def _make_embedder(model: str | None, base_url: str | None):
+    """Build an entity-name embedder, or None when none is configured.
+
+    Any OpenAI-compatible embeddings endpoint works — Ollama, a hosted API,
+    a local server — because what identifies a good embedding model differs
+    by deployment and none should be assumed. Falls back to lexical scoring
+    if the service is unreachable rather than failing the run.
+    """
+    import os
+    model = model or os.environ.get("TDG_EMBED_MODEL")
+    base_url = base_url or os.environ.get("TDG_EMBED_BASE_URL")
+    if not model:
+        return None
+    from tdg_core.embeddings import EmbeddingSimilarity
+    kwargs = {"model": model}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return EmbeddingSimilarity(**kwargs)
+
+
+def _load_tdg_bundle(folder: Path, matter_field: str = "matter"
+                     ) -> tuple[dict[str, TemporalDependencyGraph], list[str]]:
     tdgs, failures = {}, []
     for p in sorted(folder.glob("*.json")):
         try:
-            tdg = build_tdg(json.loads(p.read_text()))
+            tdg = build_tdg(json.loads(p.read_text()), matter_field=matter_field)
             if tdg.document_id in ("unknown", "", "cli_input") or tdg.document_id in tdgs:
                 tdg.document_id = p.stem
             tdgs[tdg.document_id] = tdg
@@ -41,9 +62,12 @@ def _load_tdg_bundle(folder: Path) -> tuple[dict[str, TemporalDependencyGraph], 
     return tdgs, failures
 
 
-def _extract_bundle(folder: Path, extractor_name: str, **kwargs
-                    ) -> tuple[dict[str, TemporalDependencyGraph], list[str]]:
+def _extract_bundle(folder: Path, extractor_name: str, *, clean: bool = False,
+                    **kwargs
+                    ) -> tuple[dict[str, TemporalDependencyGraph], list[str],
+                               dict[str, list]]:
     from tdg_core.extractor import load_extractor
+    from tdg_chrono.recall import audit_recall
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     try:
         extractor = load_extractor(extractor_name, **kwargs)
@@ -53,7 +77,7 @@ def _extract_bundle(folder: Path, extractor_name: str, **kwargs
             f"({', '.join(kwargs)}): {e}") from e
     except (ImportError, ValueError) as e:
         raise SystemExit(str(e)) from e
-    tdgs, failures = {}, []
+    tdgs, failures, missed = {}, [], {}
     docs = [p for p in sorted(folder.iterdir())
             if p.suffix.lower() in (".txt", ".md", ".pdf", ".docx")]
     if not docs:
@@ -61,12 +85,20 @@ def _extract_bundle(folder: Path, extractor_name: str, **kwargs
     for i, p in enumerate(docs, 1):
         print(f"  [{i}/{len(docs)}] {p.name} ...", flush=True)
         try:
-            text = load_document_text(p)
-            tdgs[p.stem] = extractor.extract(text, document_id=p.stem,
-                                             document_type="legal")
+            raw = load_document_raw(p)
+            text, dropped = process_with_report(raw, clean=clean)
+            if dropped:
+                print(f"      --clean removed {len(dropped)} span(s): "
+                      + "; ".join(d[:60] for d in dropped[:5])
+                      + (" ..." if len(dropped) > 5 else ""), flush=True)
+            tdg = extractor.extract(text, document_id=p.stem,
+                                    document_type="legal")
+            tdgs[p.stem] = tdg
+            # Audit against the raw text, so preprocessing losses surface too.
+            missed[p.stem] = audit_recall(raw, tdg)
         except Exception as e:  # noqa: BLE001
             failures.append(f"{p.name}: {e}")
-    return tdgs, failures
+    return tdgs, failures, missed
 
 
 def _load_overrides(path: Path | None) -> MergeOverrides:
@@ -97,6 +129,20 @@ def _cmd_view(args) -> int:
          "--server.headless", "false", "--browser.gatherUsageStats", "false"],
         cwd=str(ws.parent) if ws.parent.exists() else None,
         env={**__import__("os").environ, "TIMEBAR_WORKSPACE": str(ws)})
+
+
+def _tolling_date(args, which: str):
+    """Read the tolled-period bound, accepting the superseded ACAS names.
+
+    --acas-a/--acas-b named one UK statute's version of a mechanism the
+    engine now implements generically. They still work so existing scripts
+    do not break, but they are hidden from help.
+    """
+    from datetime import date as _d
+    new = getattr(args, "tolled_from" if which == "start" else "tolled_to", None)
+    old = getattr(args, "acas_a" if which == "start" else "acas_b", None)
+    value = new or old
+    return _d.fromisoformat(value) if value else None
 
 
 def _parse_key(s: str) -> tuple[str, str]:
@@ -162,20 +208,20 @@ def _cmd_capability(args) -> int:
         return 0
 
     if args.cmd == "deadline":
-        from tdg_core.entailment import check_entailment, load_alias_file
+        from tdg_core.entailment import check_entailment, use_rulepack_vocabulary
         from tdg_core.trace import render_text, render_line
 
         rule_path = Path(args.rule)
         pack_aliases = rule_path.parent / "aliases.json"
         if pack_aliases.exists():
-            load_alias_file(pack_aliases)
+            use_rulepack_vocabulary(pack_aliases)
             print(f"loaded pack vocabulary: {pack_aliases}", file=sys.stderr)
         rule_tdg = build_tdg(json.loads(rule_path.read_text()))
         instance = capabilities.merged_instance(tdgs)
         results = check_entailment(
             rule_tdg, instance,
-            acas_day_a=_date.fromisoformat(args.acas_a) if args.acas_a else None,
-            acas_day_b=_date.fromisoformat(args.acas_b) if args.acas_b else None)
+            tolled_from=_tolling_date(args, "start"),
+            tolled_to=_tolling_date(args, "end"))
         if not results:
             print("no rule discoverable in the rule document", file=sys.stderr)
             return 1
@@ -246,6 +292,13 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--allow-empty", action="store_true",
                    help="exit 0 even when extraction finds no dated facts "
                         "(default: exit 3 so scripts and CI notice)")
+    b.add_argument("--clean", action="store_true",
+                   help="run the aggressive paragraph cleaner over the "
+                        "documents first (strips headers, footers and "
+                        "two-column artifacts). Off by default: it is tuned "
+                        "for messy PDF corpora and discards body text on "
+                        "ordinary correspondence. Anything it removes is "
+                        "listed in the run output.")
     b.add_argument("--formats", default=",".join(DEFAULT_FORMATS),
                    help=f"comma list of {sorted(EXPORTERS)} (default: {','.join(DEFAULT_FORMATS)})")
     b.add_argument("--corrections", type=Path, default=None,
@@ -254,6 +307,28 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--overrides", type=Path, default=None,
                    help=argparse.SUPPRESS)  # legacy force_merge/split file
     b.add_argument("--merge-threshold", type=float, default=0.45)
+    b.add_argument("--linking", choices=["composed", "gated"], default="composed",
+                   help="how facts are matched across documents. 'composed' "
+                        "weighs entity name, quote overlap and temporal "
+                        "proximity together, scaling the bar by how related "
+                        "the two documents are. 'gated' is the older "
+                        "behaviour, where name and quote overlap must each "
+                        "clear a fixed floor, so one weak signal, usually "
+                        "the quote, vetoes an otherwise sound match.")
+    b.add_argument("--embed-model", default=None,
+                   help="embedding model for entity-name similarity, e.g. "
+                        "nomic-embed-text. Lets paraphrases link that no "
+                        "lexical measure can reach ('termination' vs "
+                        "'dismissal'). Off unless set. Env: TDG_EMBED_MODEL")
+    b.add_argument("--embed-base-url", default=None,
+                   help="OpenAI-compatible embeddings endpoint, e.g. "
+                        "http://localhost:11434/v1 for Ollama. Any provider "
+                        "works. Env: TDG_EMBED_BASE_URL")
+    b.add_argument("--matter-field", default="matter",
+                   help="which key in each TDG carries the matter identifier "
+                        "(default: matter). Documents declaring different "
+                        "matters are never linked; when the key is absent "
+                        "linking proceeds and the run says so.")
 
     def _tdg_input(sp):
         sp.add_argument("input", type=Path, help="folder of TDG *.json")
@@ -286,8 +361,14 @@ def main(argv: list[str] | None = None) -> int:
                     help="statute.tdg.json (a sibling aliases.json is auto-loaded)")
     dl.add_argument("--explain", action="store_true")
     dl.add_argument("--json", action="store_true")
-    dl.add_argument("--acas-a", metavar="DATE")
-    dl.add_argument("--acas-b", metavar="DATE")
+    dl.add_argument("--tolled-from", metavar="DATE",
+                    help="start of a period the statute does not count "
+                         "against its limit (ISO date). What qualifies is "
+                         "declared by the rule pack.")
+    dl.add_argument("--tolled-to", metavar="DATE",
+                    help="end of that period (ISO date)")
+    dl.add_argument("--acas-a", metavar="DATE", help=argparse.SUPPRESS)
+    dl.add_argument("--acas-b", metavar="DATE", help=argparse.SUPPRESS)
 
     vw = sub.add_parser("view", help="open the point-and-click viewer in your browser")
     vw.add_argument("workspace", nargs="?", default="./timebar-workspace",
@@ -325,12 +406,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.input.is_dir():
         parser.error(f"{args.input} is not a directory")
 
+    missed: dict[str, list] = {}
     if args.from_tdgs:
-        tdgs, failures = _load_tdg_bundle(args.input)
+        tdgs, failures = _load_tdg_bundle(args.input, args.matter_field)
         extractor_label = "none (pre-extracted TDGs)"
     else:
-        tdgs, failures = _extract_bundle(args.input, args.extractor,
-                                         model=args.model, base_url=args.base_url)
+        tdgs, failures, missed = _extract_bundle(
+            args.input, args.extractor, clean=args.clean,
+            model=args.model, base_url=args.base_url)
         extractor_label = args.extractor + (f" ({args.model})" if args.model else "")
         total_facts = sum(len(t.facts) for t in tdgs.values())
         if tdgs and total_facts == 0 and not args.allow_empty:
@@ -359,10 +442,13 @@ def main(argv: list[str] | None = None) -> int:
     outcome.overrides.force_merge.extend(legacy.force_merge)
     outcome.overrides.split.extend(legacy.split)
 
+    embedder = _make_embedder(args.embed_model, args.embed_base_url)
     chron = build_chronology(
         outcome.tdgs,
         overrides=outcome.overrides,
         merge_threshold=args.merge_threshold,
+        composed_linking=(args.linking == "composed"),
+        embedder=embedder,
         meta={
             "extractor": extractor_label,
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -391,7 +477,63 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{len(failures)} document(s) failed and were skipped:")
         for f in failures:
             print(f"  FAIL: {f}")
+
+    if missed:
+        from tdg_chrono.recall import format_report
+        for line in format_report(missed):
+            print(line)
+
+    unverified = chron.meta.get("counts", {}).get("unverified_quotes", 0)
+    if unverified:
+        prov = chron.meta.get("provenance", {})
+        print(f"\nprovenance: {unverified} quote(s) could not be checked "
+              "against the text of the document they came from. They are "
+              "still shown, but they do not corroborate any other document.")
+        for doc_id, rep in sorted(prov.items()):
+            if not rep["quotes_unverified"]:
+                continue
+            why = ("no source text shipped" if not rep["has_source_text"]
+                   else "quote not found in the text")
+            print(f"  - {doc_id}: {len(rep['quotes_unverified'])} of "
+                  f"{rep['facts']} ({why})")
+
+    if args.linking == "composed":
+        _report_matter_separation(outcome.tdgs, args.matter_field)
     return 0
+
+
+def _report_matter_separation(tdgs, matter_field: str) -> None:
+    """State what kept matters apart, or that nothing did.
+
+    A run that linked everything because it had no way to tell matters apart
+    must say so. Silence here would read as a guarantee the run cannot make.
+    """
+    total = len(tdgs)
+    declared = sum(1 for t in tdgs.values() if t.matter is not None)
+    named = sum(1 for t in tdgs.values() if t.parties)
+    distinct = {t.matter for t in tdgs.values() if t.matter is not None}
+
+    if declared == total and total:
+        print(f"\nlinking: '{matter_field}' declared on all {total} documents "
+              f"({len(distinct)} distinct). Documents in different matters "
+              "were not linked.")
+    elif declared:
+        print(f"\nlinking: '{matter_field}' declared on {declared}/{total} "
+              f"documents ({len(distinct)} distinct). Documents without it "
+              "fall back to party names, then link freely.")
+    elif named == total and total:
+        print(f"\nlinking: no '{matter_field}' declared; parties named on all "
+              f"{total} documents. Documents sharing no party were not linked.")
+    elif named:
+        print(f"\nlinking: no '{matter_field}' declared; parties named on "
+              f"{named}/{total} documents. The remaining {total - named} link "
+              "freely, because nothing distinguishes their matter.")
+    else:
+        print(f"\nlinking: no '{matter_field}' and no parties on any "
+              "document, so nothing separates one matter from another and "
+              "every document was linked to every other. That is fine for a "
+              "single-case bundle. If this folder mixes cases, declare a "
+              "matter or extract parties.")
 
 
 def _entry() -> int:

@@ -50,16 +50,52 @@ _ARTICLE_PREFIX = re.compile(
     re.IGNORECASE,
 )
 
-_STATUTE_BOILERPLATE = re.compile(
-    r"\s*(?:of\s+)?the\s+Employment\s+Rights\s+Act\s+\d{4}\s*",
-    re.IGNORECASE,
-)
+# Jurisdiction boilerplate to strip from entity names, e.g. the statute title
+# trailing a concept ("effective date of termination of the Employment Rights
+# Act 1996"). Empty by default: the engine ships with no jurisdiction
+# vocabulary, matching the rule stated in entailment.py — legal vocabulary is
+# loaded from data, never written here. Rule packs declare their own via
+# "entity_boilerplate" in aliases.json.
+_ENTITY_BOILERPLATE: list[re.Pattern] = []
+_BOILERPLATE_SOURCES: list[str] = []
+
+
+def register_entity_boilerplate(patterns, *, source: str = "<dict>") -> None:
+    """Add boilerplate patterns stripped from entity names before comparison.
+
+    Patterns are regular expressions, matched case-insensitively. They are
+    additive so several packs can contribute, and every registration records
+    its source so a surprising normalisation can be traced back to the file
+    that asked for it.
+    """
+    for p in patterns:
+        try:
+            _ENTITY_BOILERPLATE.append(re.compile(p, re.IGNORECASE))
+        except re.error as e:
+            raise ValueError(
+                f"invalid entity_boilerplate pattern {p!r} from {source}: {e}"
+            ) from e
+    if patterns:
+        _BOILERPLATE_SOURCES.append(source)
+
+
+def clear_entity_boilerplate() -> None:
+    """Drop all registered boilerplate (used when a pack replaces defaults)."""
+    _ENTITY_BOILERPLATE.clear()
+    _BOILERPLATE_SOURCES.clear()
+
+
+def boilerplate_sources() -> list[str]:
+    """Where the active boilerplate patterns came from, for the audit trail."""
+    return list(_BOILERPLATE_SOURCES)
 
 
 def normalise_entity(entity: str) -> str:
-    """Strip article prefix, statute boilerplate, and lowercase for comparison."""
+    """Strip article prefix and registered boilerplate, lowercase for comparison."""
     stripped = _ARTICLE_PREFIX.sub("", entity).strip()
-    stripped = _STATUTE_BOILERPLATE.sub(" ", stripped).strip()
+    for pattern in _ENTITY_BOILERPLATE:
+        stripped = pattern.sub(" ", stripped).strip()
+    stripped = re.sub(r"\s{2,}", " ", stripped)
     return stripped.lower() if stripped else entity.lower()
 
 

@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "document_id": "grounds_of_resistance",
   "document_type": "legal",
-  "source_text": "\u2026",
+  "source_text": "GROUNDS OF RESISTANCE\n\nClaimant: Ms Rowe\nRespondent: Ashvale Components Ltd\n\n1. The claimant commenced employment with the company on 3 March 2019.\n\n2. The respondent denies each and every allegation.\n",
   "facts": [
     {
       "id": "f1",
@@ -16,8 +16,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": true,
-      "start_char": 0,
-      "end_char": 0,
+      "start_char": 80,
+      "end_char": 147,
       "date_parsed": "2019-03-03"
     },
     {
@@ -32,8 +32,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": false,
-      "start_char": 0,
-      "end_char": 0
+      "start_char": 152,
+      "end_char": 200
     }
   ],
   "dependencies": [],

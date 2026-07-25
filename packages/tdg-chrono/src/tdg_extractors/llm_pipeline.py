@@ -7,13 +7,14 @@ LLM call that extracts events, dates, and relations in one shot.
 Everything downstream (graph_builder, scenario_generator, tdg.py) stays the same.
 
 Usage:
-    # OpenAI (default, requires OPENAI_API_KEY in .env)
+    # Hosted API (requires OPENAI_API_KEY)
     from llm_pipeline import LLMPipeline
-    pipe = LLMPipeline()
+    pipe = LLMPipeline(model="gpt-4o-mini")
 
-    # Local Ollama (no API key needed)
-    pipe = LLMPipeline(model="gemma4:e4b", base_url="http://localhost:11434/v1")
-    pipe = LLMPipeline(model="gemma4:26b", base_url="http://localhost:11434/v1")
+    # Local Ollama, or any OpenAI-compatible endpoint (no real key needed)
+    pipe = LLMPipeline(model="llama3", base_url="http://localhost:11434/v1")
+
+    # There is no default model: pass one, or set TDG_LLM_MODEL.
 
     tdg = pipe.process(
         text="This Agreement is effective January 15, 2025...",
@@ -175,10 +176,22 @@ IMPORTANT:
   consecutive sentences. Connect them. A relation is valid even when the two
   events are in different sentences, as long as one sentence references the other.
 
+━━━ RULES FOR PARTIES ━━━
+- "parties": every named person, company or body this document is ABOUT.
+  Include claimants, respondents, employers, employees, appellants.
+- Use the fullest form the text gives, e.g. "Northgate Logistics Ltd", "Ms A. Okafor".
+- EXCLUDE: courts and tribunals, judges, the drafting solicitors, statute
+  names, and anyone mentioned only in passing as an authority or precedent.
+- Return [] when the document names no parties. An empty list is correct and
+  useful; do not guess.
+- These identify which case the document belongs to, so accuracy matters more
+  than completeness — a wrong name is worse than a missing one.
+
 ━━━ OUTPUT FORMAT ━━━
 Return ONLY valid JSON. No explanation, no markdown, no code fences.
 
 {
+  "parties": ["Ms A. Okafor", "Northgate Logistics Ltd"],
   "events": [
     {
       "id": "e1",
@@ -833,6 +846,14 @@ class LLMPipeline:
             document_type=document_type,
             source_text=text,
         )
+
+        # Named parties, used downstream to tell one matter from another.
+        # Kept exactly as extracted: normalising names is the linker's job,
+        # and rewriting them here would lose what the document actually said.
+        raw_parties = llm_output.get("parties") or []
+        if isinstance(raw_parties, str):
+            raw_parties = [raw_parties]
+        tdg.parties = [str(p).strip() for p in raw_parties if str(p).strip()]
 
         # Merge LLM-detected relations with graph builder output
         existing = {(d.from_id, d.to_id) for d in tdg.dependencies}

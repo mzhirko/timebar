@@ -1,79 +1,154 @@
 # Timebar
 
-Timebar builds a chronology from a set of legal documents and checks
-dates against statutory time limits.
+Timebar turns a folder of case documents into a chronology you can check,
+and measures that chronology against statutory time limits.
 
-Given a folder of documents from one case (letters, claim forms,
-responses, contracts), it:
+It is built for the job a paralegal does by hand: read every document in a
+bundle, write down what happened when, notice where two documents disagree,
+and work out whether a claim was brought in time.
 
-1. extracts the dated facts from each document, keeping the sentence
-   each fact came from;
-2. identifies facts in different documents that refer to the same
-   event;
-3. outputs a timeline with one row per event, sorted by date.
+## What it does
 
-Each row lists its date, a label, the source documents, the source
-sentences, and a status: `agreed` (multiple documents, same date),
-`disputed` (documents give different dates; all values are shown),
-`single source`, or `derived` (computed from another date, e.g.
-"28 days after service"; the calculation is shown). Facts without a
-usable date are listed in a separate section instead of being dropped.
+Given a folder of documents from one case (letters, claim forms, responses,
+contracts), Timebar:
 
-It can also check the documents against a legal deadline (for example
-"a claim must be presented within three months of dismissal") and
-print the calculation step by step.
+1. **Extracts the dated facts** from each document, keeping the exact
+   sentence each fact came from.
+2. **Links facts across documents** that describe the same real-world event.
+3. **Writes one timeline**, one row per event, sorted by date.
 
-This is not legal advice. Extraction can be wrong or incomplete;
-output must be checked against the quoted sources. See
-[DISCLAIMER.md](DISCLAIMER.md).
+Every row carries its date, a label, the source documents, the source
+sentences, and a status:
 
-## Installation
+| status | meaning |
+|---|---|
+| `agreed` | two or more documents give the same date |
+| `disputed` | documents disagree; every value and every quote is shown |
+| `single source` | only one document mentions it |
+| `derived` | computed from another date, with the working shown |
 
-Requires Python 3.10+.
+Facts with no usable date are listed in their own section rather than
+dropped.
 
-```bash
-pipx install tdg-chrono
+Two design rules follow from the domain:
+
+**Nothing is silently resolved.** When documents conflict, the row shows
+both values and both quotes. The tool never picks a winner, because which
+date controls is a legal question.
+
+**The model only reads; the code decides.** An LLM is used for extraction
+and nothing else. Every comparison, every date calculation and every
+deadline is deterministic code with a schema and tests behind it. That is
+why `tdg-core` installs with no AI dependencies and its test suite runs
+offline.
+
+### Deadline checking
+
+Timebar can check a bundle against a statutory time limit, for example "a
+claim must be presented within three months beginning with the effective
+date of termination", and print the whole calculation:
+
+```
+Rule (era1996_s111):
+  presentation of the complaint = effective date of termination + 3m - 1 day
+Period: 3 month(s) - 1 day
+  anchor-day counting: DISCOVERED from the statute's own wording
+Anchor: effective date of termination = 2025-07-12  [dismissal_letter:f1]
+  quote: "Your employment terminates with effect from 12 July 2025."
+Deadline: 2025-07-12 + 3 month(s) - 1 day = 2025-10-11
+Result: the action (2025-10-01) falls 10 day(s) before the deadline.
 ```
 
-Optional extras:
+It gives a derivation, not a verdict, and names what is missing rather than
+guessing when it cannot compute an answer.
+
+This is not legal advice. Extraction can be wrong or incomplete, and output
+must be checked against the quoted sources. See [DISCLAIMER.md](DISCLAIMER.md).
+
+## Install
+
+Requires Python 3.10 or later.
+
+From a clone of this repository:
 
 ```bash
-pip install 'tdg-chrono[viewer]'   # browser interface
-pip install 'tdg-chrono[llm]'      # LLM-based extractor (OpenAI-compatible API, incl. local Ollama)
-pip install 'tdg-chrono[nlp]'      # offline extractor (HeidelTime + spaCy)
-pip install 'tdg-chrono[pdf]'      # PDF input
+python -m venv .venv && source .venv/bin/activate
+pip install -e ./packages/tdg-core -e ./packages/tdg-chrono
 ```
 
-Without extras, the tool works on pre-extracted input files and makes
-no network connections.
+Optional extras, added in the same way:
+
+```bash
+pip install -e './packages/tdg-chrono[viewer]'   # browser interface
+pip install -e './packages/tdg-chrono[llm]'      # LLM extractor, any OpenAI-compatible API
+pip install -e './packages/tdg-chrono[pdf]'      # PDF input
+pip install -e './packages/tdg-chrono[nlp]'      # offline extractor (HeidelTime and spaCy)
+```
+
+Check the install:
+
+```bash
+python -m pytest packages -q
+tdg-chrono build examples/sample-bundle -o ./out --from-tdgs
+```
+
+The example bundle is fabricated and produces five events, one of them a
+disputed termination date and one a derived deadline.
+
+Without extras the tool works on pre-extracted input and makes no network
+connections at all.
+
+## Set up local models
+
+Timebar talks to any OpenAI-compatible endpoint, so a local
+[Ollama](https://ollama.com) install keeps documents on your machine.
+
+```bash
+ollama pull llama3            # extraction
+ollama pull nomic-embed-text  # optional, for matching paraphrased event names
+```
+
+Point Timebar at it:
+
+```bash
+export OPENAI_API_KEY=ollama                       # any non-empty value
+tdg-chrono build ./my-bundle -o ./out \
+  --extractor llm --model llama3 --base-url http://localhost:11434/v1 \
+  --embed-model nomic-embed-text --embed-base-url http://localhost:11434/v1
+```
+
+A hosted API works the same way, without `--base-url`:
+
+```bash
+export OPENAI_API_KEY=sk-...
+tdg-chrono build ./my-bundle -o ./out --extractor llm --model gpt-4o-mini
+```
+
+There is no default model. `--model`, or the `TDG_LLM_MODEL` environment
+variable, is required. If extraction finds no dated facts at all, the build
+exits with code 3 rather than writing an empty chronology, because that
+almost always means a misconfigured model rather than a bundle with no
+dates. `--allow-empty` overrides this.
 
 ## Usage
 
 ### Build a timeline
 
 ```bash
-tdg-chrono build ./my-bundle -o ./out --extractor llm --model gpt-4o-mini      # OpenAI API
-tdg-chrono build ./my-bundle -o ./out --extractor llm --model gemma3:4b \
-    --base-url http://localhost:11434/v1                                        # local Ollama
-tdg-chrono build ./my-bundle -o ./out --from-tdgs       # from already-extracted files
+tdg-chrono build ./my-bundle -o ./out --extractor llm --model llama3 \
+    --base-url http://localhost:11434/v1
+tdg-chrono build ./my-bundle -o ./out --from-tdgs   # from already-extracted files
 ```
 
-There is no default model: `--model` (or the `TDG_LLM_MODEL` environment
-variable) is required for the LLM extractor. If extraction returns zero
-dated facts, the build exits with code 3 instead of writing an empty
-chronology (`--allow-empty` overrides).
+Writes `out/chronology.xlsx`, `out/chronology.csv` and
+`out/chronology.json`.
 
-Output: `out/chronology.xlsx`, `out/chronology.csv`,
-`out/chronology.json`. To try it without any setup, the repository
-includes a fabricated example case:
-
-```bash
-tdg-chrono build examples/sample-bundle -o ./out --from-tdgs
-```
-
-which produces five events, including one disputed date and one
-derived deadline (see `examples/sample-bundle/README.md` for the
-expected output).
+Every build also runs a **recall audit**: a regex sweep of the original
+document text that reports any date no extracted fact accounts for. This
+catches the extractor's silent failure mode, where a date sits in the source
+but never becomes a fact and the chronology still looks complete. Its
+warnings are gaps in extraction, not errors in the timeline. It finds
+explicit dates only, so silence is not proof of completeness.
 
 ### Browser interface
 
@@ -81,52 +156,98 @@ expected output).
 tdg-chrono view ./my-case
 ```
 
-Opens a local web page. Upload documents, inspect each timeline row
-and its source sentences, edit dates, remove or confirm rows, run
-deadline checks, and download the results. Requires the `[viewer]`
-extra.
+Opens a local page where you can upload documents, read each row against its
+source sentences, edit or remove rows, run deadline checks and download the
+results. Needs the `[viewer]` extra.
 
-### Correct extraction mistakes
+### Correct mistakes
 
 ```bash
 tdg-chrono correct corrections.json add --op edit-date --doc et1 --fact f1 --date 2025-07-12
-tdg-chrono correct corrections.json add --op reject   --doc response --fact f9
+tdg-chrono correct corrections.json add --op reject --doc response --fact f9
 tdg-chrono build ./my-bundle -o ./out --corrections corrections.json
 ```
 
-Operations: `accept`, `reject`, `edit-date`, `edit-label`, `merge`,
-`split`. Corrections are stored in the corrections file and applied on
-every rebuild. Source documents are not modified; deleting an entry
-from the file undoes the correction. The viewer writes the same file.
+Operations are `accept`, `reject`, `edit-date`, `edit-label`, `merge` and
+`split`. Corrections live in their own file and are re-applied on every
+rebuild. Source documents are never modified, and deleting an entry undoes
+the correction. The viewer writes the same file.
 
 ### Check a deadline
 
 ```bash
-tdg-chrono deadline ./my-bundle --rule rulepacks/uk/era-1996-s111/statute.tdg.json --explain
+tdg-chrono deadline ./my-bundle \
+    --rule rulepacks/uk/era-1996-s111/statute.tdg.json --explain
 ```
 
-Prints the applicable period, the sentence of the statute it was read
-from, the anchor date found in the documents, whether the first day
-counts (determined from the statute's wording), the arithmetic, and
-the result as a date comparison. If required information is missing,
-it reports what is missing instead of guessing.
+Time limits are defined in **rule packs**: data folders holding the statute
+clause, its vocabulary and gold test cases. Three are included. Adding one
+needs no code change, and `tdg rulepack validate` checks a pack against its
+own test cases. See [rulepacks/README.md](rulepacks/README.md).
 
-Time limits are defined in "rule packs": data folders containing the
-statute clause, vocabulary, and test cases. Two are included (the UK
-unfair-dismissal limit and a fabricated 21-day appeal rule). To add
-one, see [rulepacks/README.md](rulepacks/README.md). The timeline
-commands do not use rule packs.
+Where a statute does not count some period against its own limit, pass that
+period and the engine applies it:
+
+```bash
+tdg-chrono deadline ./my-bundle --rule .../statute.tdg.json \
+    --tolled-from 2025-08-01 --tolled-to 2025-08-21
+```
+
+The engine implements only the shape of that rule: a start, an end, and an
+optional floor after the end. What qualifies, what it is called and whether
+a floor applies are declared by the rule pack, so no jurisdiction's version
+is written into the engine.
 
 ### Other commands
 
 ```bash
-tdg-chrono whatif ./my-bundle --set contract:f1=2025-08-01     # recompute dates that depend on a moved date
-tdg-chrono interval ./my-bundle --doc contract --entity "non-compete" --on 2025-06-01   # was it in force on a date
-tdg-chrono interval ./my-bundle --between letter:f1 et1:f3     # order of two events
-tdg-chrono contradictions ./my-bundle                          # list conflicting statements
-tdg validate ./my-bundle                                       # check input files against the format schema
-tdg rulepack validate rulepacks/uk/era-1996-s111               # check a rule pack
+tdg-chrono whatif ./my-bundle --set contract:f1=2025-08-01
+tdg-chrono interval ./my-bundle --between letter:f1 et1:f3
+tdg-chrono interval ./my-bundle --doc contract --entity "non-compete" --on 2025-06-01
+tdg-chrono contradictions ./my-bundle
+tdg validate ./my-bundle
+tdg rulepack validate rulepacks/uk/era-1996-s111
 ```
+
+## Configuration
+
+### Keeping cases apart
+
+One bundle should hold one case. When a folder mixes matters, documents
+about different clients can be merged into a single row, which invents a
+disagreement between people who have never met.
+
+Timebar never guesses which documents belong together. It uses what the
+documents declare:
+
+- a `matter` field on a document (name it with `--matter-field`), or
+- the `parties` named in the document, which the LLM extractor fills in.
+
+Documents declaring different matters, or naming no party in common, are
+never linked. When neither is present, everything links freely and the run
+says so.
+
+### Document intake
+
+Documents reach the extractor as raw text with whitespace normalised, and
+nothing is discarded. `--clean` opts into an aggressive cleaner that strips
+headers, footers and two-column artifacts. It is built for noisy PDF corpora
+and will remove body text from ordinary correspondence, so it is off by
+default; when on, every span it removes is printed.
+
+### Options reference
+
+| option | effect |
+|---|---|
+| `--extractor` | registered extractor name, default `llm` |
+| `--model`, `--base-url` | extraction model and endpoint (`TDG_LLM_MODEL`, `OPENAI_BASE_URL`) |
+| `--embed-model`, `--embed-base-url` | optional embedder for entity names (`TDG_EMBED_MODEL`, `TDG_EMBED_BASE_URL`) |
+| `--matter-field` | which key carries the matter identifier, default `matter` |
+| `--linking` | `composed` (default) or `gated`, the older stricter matcher |
+| `--clean` | run the aggressive text cleaner first |
+| `--allow-empty` | exit 0 even when extraction finds nothing |
+| `--corrections` | corrections file to re-apply |
+| `--formats` | any of `xlsx`, `csv`, `json`, `docx` |
 
 ## Docker
 
@@ -136,45 +257,53 @@ docker run --rm -v "$PWD/mycase:/case" timebar build /case/tdgs -o /case/out --f
 docker run --rm -p 8501:8501 -v "$PWD/mycase:/case" timebar view /case
 ```
 
-`docker-compose.yml` runs the tool together with Ollama for LLM
-extraction without external services.
+`docker-compose.yml` runs Timebar alongside Ollama, so LLM extraction works
+without any external service.
 
 ## Limitations
 
-- Documents must be in English. The wording that carries counting
-  rules ("within three months", "beginning with") is matched with
-  English patterns.
-- Rule packs express single-clause limits of the form "X must happen
-  within PERIOD of EVENT". Multi-clause interactions and discretionary
-  extensions are not supported.
-- Extraction quality depends on the extractor used and requires
-  review. The `correct` command and the viewer exist for this reason.
+- **English only.** The wording that carries counting rules ("within three
+  months", "beginning with") is matched with English patterns.
+- **Single-clause time limits.** Rule packs express limits of the form "X
+  must happen within PERIOD of EVENT". Multi-clause interactions and
+  discretionary extensions are not supported.
+- **Output varies between runs.** LLM extraction is not deterministic, so
+  the same bundle and the same model can produce different timelines from
+  one run to the next. In testing, three runs of one three-document bundle
+  found 0, 0 and 1 disputes, and one run failed a document outright on
+  malformed model output. Treat a single run as one reading of the bundle,
+  not as the answer. The recall audit reports what a run missed, and it is
+  worth reading every time.
+- **Extraction quality needs review regardless.** The `correct` command and
+  the viewer exist for this reason, and every row carries the sentence it
+  came from so it can be checked.
+- **Relative expressions need a stated relationship.** "Within 28 days of
+  service" is placed on the timeline only when the extractor also records
+  what it counts from.
 
 ## Repository layout
 
 ```
-packages/tdg-core/      file format (JSON schema), date arithmetic engine, cross-document linking
-packages/tdg-chrono/    command-line tool and viewer
-rulepacks/              time limits as data files, with an authoring guide
-examples/sample-bundle/ fabricated example case
+packages/tdg-core/       file format (JSON schema), date arithmetic, cross-document linking
+packages/tdg-chrono/     command-line tool, extractors, viewer
+rulepacks/               time limits as data, with an authoring guide
+examples/sample-bundle/  fabricated example case
 ```
 
-`tdg-core` is a separate package with no LLM or NLP dependencies; the
-research release (benchmarks and evaluation code, published
-separately) depends on the same published version of it.
+`tdg-core` is a separate package with no LLM or NLP dependencies.
 
-Input and interchange use the TDG format: one JSON file per document,
-listing dated facts with text positions and the constraints between
-them. Schema: `packages/tdg-core/src/tdg_core/schema/tdg-v1.json`.
-Extractors are plugins registered via the `tdg.extractors` entry
-point; any program that emits schema-valid JSON can also be used
-without installing anything from this repository.
+Input and interchange use the TDG format: one JSON file per document listing
+dated facts with text positions and the constraints between them. The schema
+is at `packages/tdg-core/src/tdg_core/schema/tdg-v1.json`. Extractors are
+plugins registered through the `tdg.extractors` entry point, so any program
+that emits schema-valid JSON can be used without installing anything from
+this repository.
 
 ## Data and licensing
 
-Code: Apache-2.0. UK statutory wording from legislation.gov.uk under
-the Open Government Licence v3.0. All example documents and test cases
-are fabricated; see [DATA_POLICY.md](DATA_POLICY.md) for the rules on
-what data may be added to this repository.
+Code is Apache-2.0. UK statutory wording comes from legislation.gov.uk under
+the Open Government Licence v3.0. All example documents and test cases are
+fabricated. [DATA_POLICY.md](DATA_POLICY.md) sets out what data may be added
+to this repository.
 
-"Timebar" is a working title; package names are `tdg-*`.
+"Timebar" is a working title; the packages are named `tdg-*`.

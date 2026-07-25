@@ -16,7 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = ["openai>=1.30"]
+# json-repair salvages the malformed JSON local models emit under load. The
+# pipeline already recommends it by name when a parse fails; shipping it means
+# that recommendation is never printed to someone who cannot act on it.
+llm = ["openai>=1.30", "json-repair>=0.25"]
 nlp = ["spacy>=3.7"]
 pdf = ["pypdf>=4.0"]
 viewer = ["streamlit>=1.30"]

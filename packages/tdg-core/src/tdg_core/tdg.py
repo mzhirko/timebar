@@ -131,9 +131,20 @@ class TemporalDependencyGraph:
     facts: list[TemporalFact] = field(default_factory=list)
     dependencies: list[TemporalDependency] = field(default_factory=list)
     edit_scenarios: list[dict] = field(default_factory=list)
+    # Which matter (case, claimant, file reference) this document belongs to.
+    # Optional and never inferred: when two documents carry different matters
+    # the linker refuses to connect them, and when it is absent the linker
+    # links freely and says so. Inferring matter identity from text statistics
+    # was measured and does not work — see PATCH-NOTES.md.
+    matter: Optional[str] = None
+    # Named people and organisations this document is about. Extracted, not
+    # inferred: naming the parties is a reading task a model does well, while
+    # deducing which documents share a case from text statistics was measured
+    # and does not work. Used to tell matters apart when no matter is declared.
+    parties: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "schema_version": SCHEMA_VERSION,
             "document_id": self.document_id,
             "document_type": self.document_type,
@@ -142,6 +153,11 @@ class TemporalDependencyGraph:
             "dependencies": [d.to_dict() for d in self.dependencies],
             "edit_scenarios": self.edit_scenarios,
         }
+        if self.matter is not None:
+            d["matter"] = self.matter
+        if self.parties:
+            d["parties"] = list(self.parties)
+        return d
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)

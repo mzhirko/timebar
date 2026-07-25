@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "document_id": "dismissal_letter",
   "document_type": "legal",
-  "source_text": "\u2026",
+  "source_text": "PRIVATE AND CONFIDENTIAL\n\nAshvale Components Ltd\n3 June 2025\n\nDear Ms Rowe,\n\nTERMINATION OF EMPLOYMENT\n\nYou commenced employment with the company on 3 March 2019.\n\nFollowing the disciplinary hearing, the company has decided to terminate\nyour contract of employment. Your employment terminates with effect from\n12 July 2025.\n\nYours sincerely,\n\nJ. Hallam\nHead of Human Resources\n",
   "facts": [
     {
       "id": "f1",
@@ -32,8 +32,8 @@
       "signal_verb": null,
       "signal_prep": null,
       "temporal_content": true,
-      "start_char": 0,
-      "end_char": 0,
+      "start_char": 104,
+      "end_char": 162,
       "date_parsed": "2019-03-03"
     }
   ],

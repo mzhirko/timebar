@@ -100,14 +100,26 @@ def interval_contains(tdgs, doc_id: str, entity: str, on: date) -> dict:
 
 # ─── contradictions ──────────────────────────────────────────────────────
 
-def contradiction_report(tdgs) -> dict:
-    """Bundle-level report of cross-document conflicts, with both quotes."""
-    linker = CrossDocLinker()
+def contradiction_report(tdgs, *, composed: bool = True) -> dict:
+    """Bundle-level report of cross-document conflicts, with both quotes.
+
+    Reports the same disagreements the chronology marks disputed. These used
+    to differ: the report only counted a conflict once the two dates were
+    more than the entailment tolerance apart, while the timeline flagged any
+    two documents giving different dates. So a two-day discrepancy — the kind
+    that decides whether a claim is in time — showed as "0 contradictions"
+    beside a chronology reporting one dispute. Whether a gap is small enough
+    to ignore is the reader's call, not the report's.
+    """
+    linker = CrossDocLinker(composed=composed)
     for t in tdgs.values():
         linker.add_tdg(t)
     facts = {(d, f.id): f for d, t in tdgs.items() for f in t.facts}
     items = []
-    for link in linker.find_contradictions():
+    found = linker.find_coreferences() + linker.find_contradictions()
+    conflicting = [l for l in found
+                   if l.value_a and l.value_b and l.value_a != l.value_b]
+    for link in conflicting:
         fa = facts.get((link.from_doc, link.from_fact))
         fb = facts.get((link.to_doc, link.to_fact))
         items.append({

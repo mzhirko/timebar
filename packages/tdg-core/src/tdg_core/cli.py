@@ -30,22 +30,36 @@ def _cmd_validate(args) -> int:
     return 1 if failed else 0
 
 
+def _tolling_date(args, which: str):
+    """Read the tolled-period bound, accepting the superseded ACAS names.
+
+    --acas-a/--acas-b named one UK statute's version of a mechanism the
+    engine now implements generically. They still work so existing scripts
+    do not break, but they are hidden from help.
+    """
+    from datetime import date as _d
+    new = getattr(args, "tolled_from" if which == "start" else "tolled_to", None)
+    old = getattr(args, "acas_a" if which == "start" else "acas_b", None)
+    value = new or old
+    return _d.fromisoformat(value) if value else None
+
+
 def _cmd_check(args) -> int:
     from tdg_core.entailment import check_entailment
     from tdg_core.trace import render_text, render_html, render_line
 
     pack_aliases = Path(args.rule).parent / "aliases.json"
     if pack_aliases.exists():
-        from tdg_core.entailment import load_alias_file
-        load_alias_file(pack_aliases)
+        from tdg_core.entailment import use_rulepack_vocabulary
+        use_rulepack_vocabulary(pack_aliases)
         print(f"loaded pack vocabulary: {pack_aliases}", file=sys.stderr)
 
     rule_tdg = _load(args.rule)
     instance_tdg = _load(args.instance)
     results = check_entailment(
         rule_tdg, instance_tdg,
-        acas_day_a=date.fromisoformat(args.acas_a) if args.acas_a else None,
-        acas_day_b=date.fromisoformat(args.acas_b) if args.acas_b else None,
+        tolled_from=_tolling_date(args, "start"),
+        tolled_to=_tolling_date(args, "end"),
     )
     if not results:
         print("No temporal rules discovered in the rule document "
@@ -68,7 +82,8 @@ def _cmd_check(args) -> int:
 def _cmd_rulepack(args) -> int:
     """Validate a rule pack: schema-valid statute, rules discoverable with
     zero engine changes, gold cases match expected.json."""
-    from tdg_core.entailment import check_entailment, find_rules, load_alias_file
+    from tdg_core.entailment import (check_entailment, find_rules,
+                                     use_rulepack_vocabulary)
     from tdg_core.validate import validate_tdg_dict
 
     pack = Path(args.path)
@@ -95,7 +110,7 @@ def _cmd_rulepack(args) -> int:
 
     aliases = pack / "aliases.json"
     if aliases.exists():
-        load_alias_file(aliases)
+        use_rulepack_vocabulary(aliases)
         print("  ok: aliases.json loaded (extends default vocabulary)")
 
     statute = build_tdg(data)
@@ -154,8 +169,14 @@ def main(argv: list[str] | None = None) -> int:
                         "counting, anchor match, passed-over candidates, arithmetic")
     c.add_argument("--json", action="store_true", help="machine-readable output (includes verdict)")
     c.add_argument("--html", metavar="PATH", help="also write an HTML trace")
-    c.add_argument("--acas-a", metavar="DATE", help="early-conciliation Day A (ISO)")
-    c.add_argument("--acas-b", metavar="DATE", help="early-conciliation Day B (ISO)")
+    c.add_argument("--tolled-from", metavar="DATE",
+                   help="start of a period the statute does not count "
+                        "against its limit (ISO date). What qualifies is "
+                        "declared by the rule pack.")
+    c.add_argument("--tolled-to", metavar="DATE",
+                   help="end of that period (ISO date)")
+    c.add_argument("--acas-a", metavar="DATE", help=argparse.SUPPRESS)
+    c.add_argument("--acas-b", metavar="DATE", help=argparse.SUPPRESS)
     c.set_defaults(fn=_cmd_check)
 
     rp = sub.add_parser("rulepack", help="rule pack tools")
