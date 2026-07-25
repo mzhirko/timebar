@@ -17,6 +17,7 @@ services:
       # the LLM extractor's OpenAI-compatible endpoint -> local Ollama
       OPENAI_BASE_URL: http://ollama:11434/v1
       OPENAI_API_KEY: ollama            # any non-empty value; never leaves the network
+      TDG_LLM_MODEL: gemma3:4b          # must match the model pulled into Ollama
     volumes:
       - ./mycase:/case
     ports:

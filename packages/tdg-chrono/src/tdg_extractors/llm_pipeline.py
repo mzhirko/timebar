@@ -511,7 +511,7 @@ class LLMPipeline:
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: Optional[str] = None,
         temperature: float = 0.0,
         base_url: Optional[str] = None,
         max_tokens: int = 8192,
@@ -523,6 +523,14 @@ class LLMPipeline:
             base_url:    Ollama endpoint, e.g. "http://localhost:11434/v1".
                          If None, uses OpenAI API (requires OPENAI_API_KEY).
         """
+        import os
+        model = model or os.environ.get("TDG_LLM_MODEL") or os.environ.get("OPENAI_MODEL")
+        base_url = base_url or os.environ.get("OPENAI_BASE_URL")
+        if not model:
+            raise ValueError(
+                "No LLM model configured. Pass --model on the command line "
+                "(e.g. --model gemma3:4b for Ollama, --model gpt-4o-mini for "
+                "OpenAI) or set TDG_LLM_MODEL. There is no default model.")
         if base_url:
             # Local Ollama — api_key value is required by the client but ignored
             self.client = OpenAI(api_key="ollama", base_url=base_url)

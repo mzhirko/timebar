@@ -68,10 +68,10 @@ def load_extractor(name: str, **kwargs) -> Extractor:
         )
     try:
         cls = eps[name].load()
+        return cls(**kwargs)
     except ImportError as e:
         raise ImportError(
             f"Extractor {name!r} is registered but its dependencies are not "
             f"installed ({e}). Install the matching extra, e.g. "
             f"pip install 'tdg-chrono[llm]' or 'tdg-chrono[nlp]'."
         ) from e
-    return cls(**kwargs)

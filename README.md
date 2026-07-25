@@ -52,9 +52,16 @@ no network connections.
 ### Build a timeline
 
 ```bash
-tdg-chrono build ./my-bundle -o ./out --extractor llm   # from raw documents (.pdf/.docx/.txt)
+tdg-chrono build ./my-bundle -o ./out --extractor llm --model gpt-4o-mini      # OpenAI API
+tdg-chrono build ./my-bundle -o ./out --extractor llm --model gemma3:4b \
+    --base-url http://localhost:11434/v1                                        # local Ollama
 tdg-chrono build ./my-bundle -o ./out --from-tdgs       # from already-extracted files
 ```
+
+There is no default model: `--model` (or the `TDG_LLM_MODEL` environment
+variable) is required for the LLM extractor. If extraction returns zero
+dated facts, the build exits with code 3 instead of writing an empty
+chronology (`--allow-empty` overrides).
 
 Output: `out/chronology.xlsx`, `out/chronology.csv`,
 `out/chronology.json`. To try it without any setup, the repository

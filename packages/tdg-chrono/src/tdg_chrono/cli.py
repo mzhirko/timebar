@@ -41,10 +41,18 @@ def _load_tdg_bundle(folder: Path) -> tuple[dict[str, TemporalDependencyGraph], 
     return tdgs, failures
 
 
-def _extract_bundle(folder: Path, extractor_name: str
+def _extract_bundle(folder: Path, extractor_name: str, **kwargs
                     ) -> tuple[dict[str, TemporalDependencyGraph], list[str]]:
     from tdg_core.extractor import load_extractor
-    extractor = load_extractor(extractor_name)
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    try:
+        extractor = load_extractor(extractor_name, **kwargs)
+    except TypeError as e:
+        raise SystemExit(
+            f"extractor {extractor_name!r} does not accept these options "
+            f"({', '.join(kwargs)}): {e}") from e
+    except (ImportError, ValueError) as e:
+        raise SystemExit(str(e)) from e
     tdgs, failures = {}, []
     docs = [p for p in sorted(folder.iterdir())
             if p.suffix.lower() in (".txt", ".md", ".pdf", ".docx")]
@@ -228,6 +236,16 @@ def main(argv: list[str] | None = None) -> int:
                    help="input folder contains already-extracted TDG *.json (no extractor, fully offline)")
     b.add_argument("--extractor", default="llm",
                    help="registered extractor name (default: llm; requires the matching extra)")
+    b.add_argument("--model", default=None,
+                   help="LLM extractor model, e.g. gemma3:4b (Ollama) or "
+                        "gpt-4o-mini (OpenAI). Env fallback: TDG_LLM_MODEL. "
+                        "Required for --extractor llm; no default.")
+    b.add_argument("--base-url", default=None,
+                   help="OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 "
+                        "for Ollama. Env fallback: OPENAI_BASE_URL.")
+    b.add_argument("--allow-empty", action="store_true",
+                   help="exit 0 even when extraction finds no dated facts "
+                        "(default: exit 3 so scripts and CI notice)")
     b.add_argument("--formats", default=",".join(DEFAULT_FORMATS),
                    help=f"comma list of {sorted(EXPORTERS)} (default: {','.join(DEFAULT_FORMATS)})")
     b.add_argument("--corrections", type=Path, default=None,
@@ -311,8 +329,19 @@ def main(argv: list[str] | None = None) -> int:
         tdgs, failures = _load_tdg_bundle(args.input)
         extractor_label = "none (pre-extracted TDGs)"
     else:
-        tdgs, failures = _extract_bundle(args.input, args.extractor)
-        extractor_label = args.extractor
+        tdgs, failures = _extract_bundle(args.input, args.extractor,
+                                         model=args.model, base_url=args.base_url)
+        extractor_label = args.extractor + (f" ({args.model})" if args.model else "")
+        total_facts = sum(len(t.facts) for t in tdgs.values())
+        if tdgs and total_facts == 0 and not args.allow_empty:
+            print(f"\n{len(tdgs)} document(s) processed but ZERO dated facts "
+                  "extracted. This usually means the extractor/model is "
+                  "misconfigured, not that the documents contain no dates. "
+                  "Not writing an empty chronology. "
+                  "(Use --allow-empty to override.)", file=sys.stderr)
+            for f in failures:
+                print(f"  FAIL: {f}", file=sys.stderr)
+            return 3
 
     if not tdgs:
         print("No documents could be processed:", file=sys.stderr)
