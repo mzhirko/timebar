@@ -183,6 +183,14 @@ def mark_confirmed(chron: Chronology, accepted: set[FactKey]) -> None:
 
 
 def export_gold(corrections: list[Correction]) -> list[dict]:
-    """The annotation harvest: every human decision with before/after."""
+    """The annotation harvest: every human decision with before/after.
+
+    Includes merge and split, which were previously dropped. They are the
+    most informative corrections there are: a merge says two facts ARE the
+    same event and a split says they are not, which is exactly the judgement
+    the cross-document linker is trying to make. Discarding them threw away
+    the only labelled data the tool produces by being used.
+    """
     return [c.to_dict() for c in corrections
-            if c.op in ("accept", "reject", "edit_date", "edit_label")]
+            if c.op in ("accept", "reject", "edit_date", "edit_label",
+                        "merge", "split")]

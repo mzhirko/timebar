@@ -132,9 +132,14 @@ class EmbeddingSimilarity:
         self,
         base_url: str = "http://localhost:11434/v1",
         model: str = "nomic-embed-text",
+        api_key: Optional[str] = None,
     ):
+        # The key used to be the literal string "ollama", which meant a
+        # hosted embedding service could never authenticate. Local servers
+        # ignore it; hosted ones need the real thing.
         self.model = model
         self.base_url = base_url
+        self.api_key = api_key or "local"
         self._cache: dict[str, list[float]] = {}
         self._client = None
         self._available: Optional[bool] = None  # None = not tested yet
@@ -145,7 +150,7 @@ class EmbeddingSimilarity:
             try:
                 from openai import OpenAI
                 self._client = OpenAI(
-                    api_key="ollama",
+                    api_key=self.api_key,
                     base_url=self.base_url,
                 )
             except ImportError:

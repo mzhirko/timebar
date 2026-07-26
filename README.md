@@ -198,6 +198,113 @@ optional floor after the end. What qualifies, what it is called and whether
 a floor applies are declared by the rule pack, so no jurisdiction's version
 is written into the engine.
 
+### Ask questions about a bundle
+
+```bash
+tdg-chrono ask ./my-case "when did the employment end?" \
+    --model llama3 --base-url http://localhost:11434/v1
+```
+
+This is retrieval-augmented generation with the timeline consulted first.
+The established dates go into the prompt before any prose, then the relevant
+sentences are retrieved, then the model answers with quotes. Ordering is the
+point: a model that has read the computed dates before it reads the
+documents is far less likely to pull a date out of a sentence and do its own
+arithmetic on it.
+
+What that buys, on a real bundle:
+
+- **Disagreements survive.** Asked when employment ended, it answers *"the
+  documents disagree"* and gives both dates. Plain retrieval would hand the
+  model whichever passage ranked first.
+- **Calculated dates are available.** A response deadline stated nowhere in
+  the documents is computed by the engine and can be answered.
+- **Cases stay apart.** Where a folder holds more than one matter, the facts
+  are grouped by case and the model is told not to combine them.
+- **The answer is checked.** Every date in the reply is compared against the
+  established facts; any the model invented or mis-copied is reported:
+
+```
+WARNING  the answer states date(s) that were never established from these
+         documents:
+           12 July 2025
+         The model either did its own arithmetic or slipped.
+```
+
+`--show-prompt` prints exactly what the model was given. `--json` returns
+the answer with every fact and passage it rested on, including character
+offsets so a citation points at the sentence.
+
+For the context block alone, without a model writing anything:
+
+```bash
+tdg-chrono context ./my-case --about "termination"
+```
+
+And to find out which stored answers a correction invalidates:
+
+```bash
+tdg-chrono stale ./my-case --changed et1:f5
+```
+
+## Choosing models
+
+The tool talks to a language model for three unrelated jobs. They need not
+be the same model, or the same provider, and each is configured separately.
+
+| role | what it does | flag | environment |
+|---|---|---|---|
+| **extract** | reads documents into dated facts | `--model` on `build` | `TDG_EXTRACT_MODEL` |
+| **answer** | writes the prose in `ask` | `--model` on `ask` | `TDG_ANSWER_MODEL` |
+| **embed** | matches paraphrased names, ranks passages | `--embed-model` | `TDG_EMBED_MODEL` |
+
+Each role resolves in this order: the command-line flag, then its own
+environment variable, then a shared fallback for the common case of one
+provider for everything.
+
+| setting | per-role variable | shared fallback |
+|---|---|---|
+| model | `TDG_{ROLE}_MODEL` | `TDG_LLM_MODEL` (extract and answer) |
+| endpoint | `TDG_{ROLE}_BASE_URL` | `OPENAI_BASE_URL` |
+| key | `TDG_{ROLE}_API_KEY` | `OPENAI_API_KEY` |
+
+**One provider for everything** — the simple case:
+
+```bash
+export TDG_LLM_MODEL=llama3
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export TDG_EMBED_MODEL=nomic-embed-text
+```
+
+**A different provider per role** — a small local model reading documents,
+a larger hosted one writing answers, a dedicated embedding service:
+
+```bash
+export TDG_EXTRACT_MODEL=llama3
+export TDG_EXTRACT_BASE_URL=http://localhost:11434/v1
+
+export TDG_ANSWER_MODEL=gpt-4o-mini
+export TDG_ANSWER_API_KEY=sk-...
+
+export TDG_EMBED_MODEL=nomic-embed-text
+export TDG_EMBED_BASE_URL=http://localhost:11434/v1
+```
+
+The keys stay independent, so a hosted answering model and a local extractor
+do not fight over one credential. Any OpenAI-compatible endpoint works.
+
+A role with nothing configured is simply switched off: no embedder means
+lexical matching, which is a supported way to run. Extraction is the
+exception, since it cannot proceed without a model and says so:
+
+```
+error: no model configured for answer.
+       Pass --model, or set TDG_ANSWER_MODEL.
+```
+
+`build` prints which models it is using, so a mixed setup is visible in the
+run rather than only in your shell.
+
 ### Other commands
 
 ```bash
@@ -205,6 +312,7 @@ tdg-chrono whatif ./my-bundle --set contract:f1=2025-08-01
 tdg-chrono interval ./my-bundle --between letter:f1 et1:f3
 tdg-chrono interval ./my-bundle --doc contract --entity "non-compete" --on 2025-06-01
 tdg-chrono contradictions ./my-bundle
+tdg-chrono stale ./my-bundle --changed et1:f5
 tdg validate ./my-bundle
 tdg rulepack validate rulepacks/uk/era-1996-s111
 ```

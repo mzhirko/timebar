@@ -34,8 +34,12 @@ Status = Literal["agreed", "disputed", "single_source", "derived"]
 
 FactKey = tuple[str, str]  # (document_id, fact_id)
 
-# Confidence floor for accepting an automatic coreference merge.
-DEFAULT_MERGE_THRESHOLD = 0.45
+# An OPTIONAL extra filter on top of whatever bar the linker already applied.
+# It defaults to no filtering: at 0.45 it sat below the linker's own bar
+# (0.50 lexical, 0.60 with an embedder), so it could never reject anything
+# and read as a control that was not one. Raise it to merge more strictly
+# than the linker does; leave it alone to accept the linker's judgement.
+DEFAULT_MERGE_THRESHOLD = 0.0
 
 
 # ─── Result dataclasses ───────────────────────────────────────────────────
@@ -291,8 +295,21 @@ def resolve_relative_dates(
     """
     import copy
 
+    from tdg_core.provenance import check_relation
+
     resolved = {k: copy.deepcopy(v) for k, v in tdgs.items()}
     derivations: dict[FactKey, str] = {}
+
+    # A period the document never states must not drive a calculation. An
+    # extractor that measures the gap between two dates and reports it as a
+    # rule produces an edge indistinguishable from a real one, and a date
+    # derived from it would look exactly like a date the document gave.
+    trusted = set()
+    for doc_id, tdg in resolved.items():
+        for dep in tdg.dependencies:
+            check = check_relation(tdg, dep)
+            if check is None or check.supported:
+                trusted.add((doc_id, dep.from_id, dep.to_id))
 
     # Chains resolve over successive passes: A dates B, then B dates C.
     # Bounded by fact count, since each pass must date at least one new fact.
@@ -302,6 +319,8 @@ def resolve_relative_dates(
             by_id = {f.id: f for f in tdg.facts}
             for dep in tdg.dependencies:
                 if dep.constraint_type != "additive":
+                    continue
+                if (doc_id, dep.from_id, dep.to_id) not in trusted:
                     continue
                 anchor = by_id.get(dep.from_id)
                 target = by_id.get(dep.to_id)
@@ -352,7 +371,8 @@ def build_chronology(
         tdgs: {document_id: TDG}
         links: cross-document links. When None, a CrossDocLinker is run
             over the given TDGs (embedder-free Jaccard fallback).
-        merge_threshold: minimum link confidence for an automatic merge.
+        merge_threshold: an extra confidence floor applied on top of the
+            linker's own bar. 0.0 means no extra filtering.
         overrides: user force-merge / split corrections, re-applied on
             top of automatic clustering every run.
         derive_undated: place undated facts via additive dependencies
@@ -377,9 +397,12 @@ def build_chronology(
 
     # Which quotes could actually be located in their own document's text.
     # Checked before anything is merged, so corroboration can be judged.
-    from tdg_core.provenance import check_bundle, unverified_keys
+    from tdg_core.provenance import (check_bundle, check_bundle_relations,
+                                     unsupported_relations, unverified_keys)
     provenance = check_bundle(tdgs)
     unverified = unverified_keys(provenance)
+    relation_checks = check_bundle_relations(tdgs)
+    bad_relations = unsupported_relations(relation_checks)
 
     if links is None:
         linker = CrossDocLinker(composed=composed_linking, embedder=embedder)
@@ -585,12 +608,22 @@ def build_chronology(
     events.sort(key=lambda e: (e.date or date.max, e.label))
     chron = Chronology(events=events, unplaced=unplaced, meta=dict(meta or {}))
     chron.meta.setdefault("documents", sorted(tdgs))
+    # Which case each document belongs to. Anything presenting these facts to
+    # a reader (or a model) needs it: two matters in one bundle produce rows
+    # that look identical and are about different people.
+    chron.meta.setdefault("matters", {
+        doc_id: t.matter for doc_id, t in tdgs.items() if t.matter})
     chron.meta.setdefault("counts", {
         "events": len(events),
         "disputed": chron.disputed_count,
         "unplaced": len(unplaced),
         "unverified_quotes": len(unverified),
+        "unsupported_relations": len(bad_relations),
     })
+    chron.meta.setdefault("relations", [
+        {"doc_id": c.doc_id, "anchor": c.anchor, "target": c.target,
+         "offset": c.offset, "verdict": c.verdict, "summary": c.summary}
+        for c in bad_relations])
     chron.meta.setdefault("provenance", {
         doc_id: {"has_source_text": rep.has_source_text,
                  "facts": rep.total,
@@ -616,10 +649,18 @@ def _try_derive(
     parsed from constraint_expr). The derivation string carries the
     working, per D3: derivations, not verdicts.
     """
+    from tdg_core.provenance import check_relation
+
     member_ids = {k for k in cluster}
     for doc_id, tdg in tdgs.items():
         for dep in tdg.dependencies:
             if dep.constraint_type != "additive":
+                continue
+            # The same guard as the pre-pass. This path runs after clustering
+            # and is a second way a fabricated period could reach the
+            # timeline, so it has to ask the same question.
+            check = check_relation(tdg, dep)
+            if check is not None and not check.supported:
                 continue
             to_key = (doc_id, dep.to_id)
             from_key = (doc_id, dep.from_id)

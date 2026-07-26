@@ -17,6 +17,12 @@ def _load(path: str):
 
 
 def _cmd_validate(args) -> int:
+    import json as _json
+    from pathlib import Path as _Path
+
+    from tdg_core.io import build_tdg
+    from tdg_core.provenance import check_document, check_source_hash
+
     failed = 0
     for path in args.paths:
         for file, errors in validate_path(path).items():
@@ -25,8 +31,30 @@ def _cmd_validate(args) -> int:
                 print(f"FAIL {file}")
                 for e in errors:
                     print(f"  - {e}")
-            elif not args.quiet:
+                continue
+            if not args.quiet:
                 print(f"ok   {file}")
+
+            # Schema-valid is not the same as checkable. A document shipping
+            # neither its text nor the hash the schema offers in its place
+            # cannot have a single one of its quotes verified, and nothing
+            # used to say so.
+            try:
+                tdg = build_tdg(_json.loads(_Path(file).read_text()))
+            except Exception:  # noqa: BLE001 — schema already passed; be quiet
+                continue
+            verdict, detail = check_source_hash(tdg)
+            if verdict == "mismatch":
+                failed += 1
+                print(f"     PROVENANCE FAIL: {detail}")
+            elif verdict == "neither" and tdg.facts:
+                print(f"     warning: {detail}")
+            elif verdict == "hash-only" and not args.quiet:
+                print(f"     note: {detail}")
+            else:
+                report = check_document(tdg)
+                if report.unsupported:
+                    print(f"     warning: {report.summary}")
     return 1 if failed else 0
 
 
@@ -114,6 +142,19 @@ def _cmd_rulepack(args) -> int:
         print("  ok: aliases.json loaded (extends default vocabulary)")
 
     statute = build_tdg(data)
+
+    # The deadline engine discovers its rule from this document's additive
+    # dependencies and never asks whether the statute actually states the
+    # period they assert. A pack whose rule is not in its own quoted text
+    # would compute a confident deadline from a number nobody wrote, which
+    # is the most consequential place in the tool for that to happen.
+    from tdg_core.provenance import check_relations
+    unsupported = [c for c in check_relations(statute) if not c.supported]
+    for c in unsupported:
+        fail(f"the statute text does not support this rule: {c.summary}")
+    if not unsupported:
+        print("  ok: every stated period appears in the statute's own text")
+
     rules = find_rules(statute)
     if not rules:
         fail("no temporal rule discoverable from the statute TDG")

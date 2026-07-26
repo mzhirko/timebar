@@ -142,6 +142,10 @@ class TemporalDependencyGraph:
     # deducing which documents share a case from text statistics was measured
     # and does not work. Used to tell matters apart when no matter is declared.
     parties: list[str] = field(default_factory=list)
+    # SHA-256 of the source text. The schema offers this as the provenance
+    # substitute for bundles that cannot ship the text itself; carrying it
+    # here is what makes that promise checkable.
+    source_text_sha256: Optional[str] = None
 
     def to_dict(self) -> dict:
         d = {
@@ -157,6 +161,8 @@ class TemporalDependencyGraph:
             d["matter"] = self.matter
         if self.parties:
             d["parties"] = list(self.parties)
+        if self.source_text_sha256:
+            d["source_text_sha256"] = self.source_text_sha256
         return d
 
     def to_json(self, indent: int = 2) -> str:

@@ -481,19 +481,40 @@ def _graph_tab(chron, tdgs):
 
     # Calculated-from arrows, drawn differently so they read as a different
     # kind of relationship than "this document says so".
+    # A relationship the document does not support is still drawn, because
+    # nothing here is hidden, but it must not look like a real one. Drawing
+    # it identically would show an invented dependency as fact.
+    from tdg_core.provenance import check_relation
+
     key_to_event = {(s.doc_id, s.fact_id): e for e in events for s in e.sources}
+    rejected = 0
     for doc_id, t in tdgs.items():
         for dep in t.dependencies:
             a = key_to_event.get((doc_id, dep.from_id))
             b = key_to_event.get((doc_id, dep.to_id))
-            if a and b and a is not b:
-                expr = dep.constraint_expr or (
-                    f"+{dep.delta_days} days" if dep.delta_days else "calculated")
+            if not (a and b and a is not b):
+                continue
+            expr = dep.constraint_expr or (
+                f"+{dep.delta_days} days" if dep.delta_days else "calculated")
+            verdict = check_relation(t, dep)
+            if verdict is not None and not verdict.supported:
+                rejected += 1
+                lines.append(
+                    f'"{a.event_id}" -> "{b.event_id}" '
+                    f'[label="{_esc(expr)} (not in document)", style=dotted, '
+                    f'color="#b0b0b0", fontcolor="#b0b0b0", constraint=false];')
+            else:
                 lines.append(f'"{a.event_id}" -> "{b.event_id}" '
                              f'[label="{_esc(expr)}", style=dashed, '
                              f'color="#8e5db0", fontcolor="#8e5db0", constraint=false];')
     lines.append("}")
     st.graphviz_chart("\n".join(lines))
+
+    if rejected:
+        st.warning(
+            f"{rejected} grey link(s) were **added by the extractor**, not "
+            "found in the document: it measured the gap between two dates and "
+            "recorded it as a rule. Shown, but never calculated with.")
 
     n_disputed = sum(1 for e in chron.events if e.status == "disputed")
     bits = [f"{len(docs)} documents", f"{len(events)} events"]
@@ -804,12 +825,36 @@ def _whatif_tab(tdgs):
     if not tdgs:
         st.info("Add documents first.")
         return
-    options = {f"[{d}] {f.entity} ({f.timex.date_parsed})": (d, f.id)
-               for d, t in tdgs.items() for f in t.facts
-               if f.timex.date_parsed}
+    # Mark which dates actually have something defined relative to them.
+    # Without this the honest answer for most dates ("nothing moves") is
+    # indistinguishable from a broken feature.
+    options, movers = {}, 0
+    for d, t in tdgs.items():
+        for f in t.facts:
+            if not f.timex.date_parsed:
+                continue
+            linked = capabilities.has_dependents(tdgs, (d, f.id))
+            movers += 1 if linked else 0
+            tag = "" if linked else "   (nothing depends on this)"
+            options[f"[{d}] {f.entity} ({f.timex.date_parsed}){tag}"] = (d, f.id)
+
+    if movers == 0:
+        st.info(
+            "No date in these documents has another date defined relative to "
+            "it, so moving any of them changes nothing else. That is a fact "
+            "about the documents, not a limitation of this screen: they state "
+            "no rule such as \"within 28 days of service\" tying one date to "
+            "another.")
+    else:
+        st.caption(f"{movers} of {len(options)} dates have something defined "
+                   "relative to them. The rest are marked.")
+
     pick = st.selectbox("Which date moves?", [NOTHING_SELECTED] + list(options))
     if pick == NOTHING_SELECTED:
         return
+    if not capabilities.has_dependents(tdgs, options[pick]):
+        st.warning("Nothing is defined relative to this date, so moving it "
+                   "will not change any other row.")
     new = st.date_input("Its new date", value=date.today())
     if st.button("Show what changes"):
         out = capabilities.whatif(tdgs, options[pick], new)

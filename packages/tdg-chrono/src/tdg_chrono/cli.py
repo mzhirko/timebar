@@ -31,20 +31,19 @@ DEFAULT_FORMATS = ["xlsx", "csv", "json"]
 def _make_embedder(model: str | None, base_url: str | None):
     """Build an entity-name embedder, or None when none is configured.
 
-    Any OpenAI-compatible embeddings endpoint works — Ollama, a hosted API,
-    a local server — because what identifies a good embedding model differs
-    by deployment and none should be assumed. Falls back to lexical scoring
-    if the service is unreachable rather than failing the run.
+    Any OpenAI-compatible endpoint works, hosted or local, and it need not
+    be the same provider as the extraction or answering model. Falls back to
+    lexical scoring if the service is unreachable rather than failing.
     """
-    import os
-    model = model or os.environ.get("TDG_EMBED_MODEL")
-    base_url = base_url or os.environ.get("TDG_EMBED_BASE_URL")
-    if not model:
+    from tdg_chrono.models import resolve
+
+    cfg = resolve("embed", model=model, base_url=base_url)
+    if not cfg.configured:
         return None
     from tdg_core.embeddings import EmbeddingSimilarity
-    kwargs = {"model": model}
-    if base_url:
-        kwargs["base_url"] = base_url
+    kwargs = {"model": cfg.model, "api_key": cfg.effective_key}
+    if cfg.base_url:
+        kwargs["base_url"] = cfg.base_url
     return EmbeddingSimilarity(**kwargs)
 
 
@@ -68,20 +67,39 @@ def _extract_bundle(folder: Path, extractor_name: str, *, clean: bool = False,
                                dict[str, list]]:
     from tdg_core.extractor import load_extractor
     from tdg_chrono.recall import audit_recall
+
+    tdgs, failures, missed = {}, [], {}
+    candidates = [p for p in sorted(folder.iterdir())
+                  if p.suffix.lower() in (".txt", ".md", ".pdf", ".docx")]
+    # A bundle folder often carries a README describing the case. It is not
+    # part of the case, and extracting dates from it produces facts about the
+    # folder rather than the matter. Skipped rather than silently included,
+    # and announced, so a document genuinely named README is not lost quietly.
+    docs = [p for p in candidates if not p.stem.upper().startswith("README")]
+    for skipped in [p for p in candidates if p not in docs]:
+        print(f"  skipping {skipped.name} (looks like folder documentation, "
+              "not a case document)", flush=True)
+    if not docs:
+        # Say so before asking for a model. Demanding --model first sends the
+        # reader to fix the wrong thing when their real problem is that the
+        # folder holds already-extracted JSON and wants --from-tdgs.
+        json_files = [p for p in folder.glob("*.json")]
+        hint = (" That folder holds "
+                f"{len(json_files)} .json file(s); if those are already-"
+                "extracted TDGs, add --from-tdgs." if json_files else "")
+        failures.append(
+            f"no .txt/.md/.pdf/.docx documents found in {folder}.{hint}")
+        return tdgs, failures, missed
+
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     try:
         extractor = load_extractor(extractor_name, **kwargs)
     except TypeError as e:
         raise SystemExit(
-            f"extractor {extractor_name!r} does not accept these options "
-            f"({', '.join(kwargs)}): {e}") from e
+            f"error: extractor {extractor_name!r} does not accept these "
+            f"options ({', '.join(kwargs)}): {e}") from e
     except (ImportError, ValueError) as e:
-        raise SystemExit(str(e)) from e
-    tdgs, failures, missed = {}, [], {}
-    docs = [p for p in sorted(folder.iterdir())
-            if p.suffix.lower() in (".txt", ".md", ".pdf", ".docx")]
-    if not docs:
-        failures.append(f"no .txt/.md/.pdf/.docx documents found in {folder}")
+        raise SystemExit(f"error: {e}") from e
     for i, p in enumerate(docs, 1):
         print(f"  [{i}/{len(docs)}] {p.name} ...", flush=True)
         try:
@@ -147,9 +165,24 @@ def _tolling_date(args, which: str):
 
 def _parse_key(s: str) -> tuple[str, str]:
     if ":" not in s:
-        raise SystemExit(f"fact key must be doc:fact, got {s!r}")
+        raise SystemExit(
+            f"error: {s!r} is not a fact reference.\n"
+            "       Use DOCUMENT:FACT, for example et1_claim:f4.\n"
+            "       The document is the JSON file's name without .json, and "
+            "the fact id is the 'id' field on the fact.")
     d, f = s.split(":", 1)
     return d, f
+
+
+def _parse_date(value: str, what: str):
+    """Read an ISO date, or explain precisely what was wrong with it."""
+    from datetime import date as _d
+    try:
+        return _d.fromisoformat(value)
+    except ValueError:
+        raise SystemExit(
+            f"error: {value!r} is not a date ({what}).\n"
+            "       Dates are written YYYY-MM-DD, for example 2025-07-12.") from None
 
 
 def _cmd_capability(args) -> int:
@@ -168,7 +201,7 @@ def _cmd_capability(args) -> int:
                 tdgs, _parse_key(args.between[0]), _parse_key(args.between[1]))
         elif args.entity and args.doc and args.on:
             out = capabilities.interval_contains(
-                tdgs, args.doc, args.entity, _date.fromisoformat(args.on))
+                tdgs, args.doc, args.entity, _parse_date(args.on, "--on"))
         else:
             print("use --between A B, or --entity/--doc/--on", file=sys.stderr)
             return 1
@@ -194,10 +227,85 @@ def _cmd_capability(args) -> int:
                 print(f"    [{c['b']['doc']}] \"{c['b']['quote']}\"")
         return 0
 
+    if args.cmd == "ask":
+        from tdg_chrono.chronology import build_chronology
+        from tdg_chrono import rag
+
+        from tdg_chrono.models import resolve
+
+        answerer = resolve("answer", model=args.model, base_url=args.base_url)
+        embedder = _make_embedder(args.embed_model, args.embed_base_url)
+        chron = build_chronology(tdgs, embedder=embedder)
+        out = rag.ask(chron, tdgs, args.question,
+                      model=answerer.model, base_url=answerer.base_url,
+                      limit=args.passages, embedder=embedder)
+        if args.json:
+            print(json.dumps(out, indent=2))
+        elif args.show_prompt:
+            print(out["prompt"])
+        else:
+            print(out["answer"])
+            print("\n" + "─" * 60)
+            if out["unsupported_dates"]:
+                print("WARNING  the answer states date(s) that were never "
+                      "established from these documents:", file=sys.stderr)
+                for d in out["unsupported_dates"]:
+                    print(f"           {d}", file=sys.stderr)
+                print("         The model either did its own arithmetic or "
+                      "slipped. Treat those dates as unverified.",
+                      file=sys.stderr)
+            print(f"grounded in {len(out['facts_used']['facts'])} established "
+                  f"date(s) and {len(out['passages_used'])} passage(s). "
+                  "Check the answer against them.")
+        return 0
+
+    if args.cmd == "context":
+        from datetime import date as _d
+        from tdg_chrono.chronology import build_chronology
+        from tdg_chrono import rag
+
+        chron = build_chronology(tdgs)
+        ctx = rag.select(
+            chron, about=args.about or "",
+            since=_parse_date(args.since, "--since") if args.since else None,
+            until=_parse_date(args.until, "--until") if args.until else None,
+            on=_parse_date(args.on, "--on") if args.on else None,
+            limit=args.limit)
+        if args.json:
+            print(json.dumps(rag.to_dict(ctx), indent=2))
+        else:
+            print(rag.render(ctx, source=str(args.input)))
+        return 0
+
+    if args.cmd == "stale":
+        out = capabilities.stale_report(tdgs, _parse_key(args.changed))
+        if args.json:
+            print(json.dumps(out, indent=2))
+        else:
+            c = out["changed"]
+            print(f"If {c['entity']} ({c['value']}) changes, "
+                  f"{out['count']} fact(s) stop being trustworthy:")
+            if not out["stale"]:
+                print("  nothing else depends on it, in this document or any "
+                      "other in the bundle.")
+            for i in out["stale"]:
+                where = "same document" if i["same_document"] else "another document"
+                print(f"  [{i['doc_id']}] {i['entity']} = {i['value']}  ({where})")
+                print(f"      because: {i['reason']}")
+                if i["quote"]:
+                    print(f"      \"{i['quote'][:100]}\"")
+        return 0
+
     if args.cmd == "whatif":
         keypart, datepart = args.set.split("=", 1)
-        out = capabilities.whatif(tdgs, _parse_key(keypart),
-                                  _date.fromisoformat(datepart))
+        moved = _parse_key(keypart)
+        out = capabilities.whatif(tdgs, moved, _parse_date(datepart, "the date in --set"))
+        if not args.json and len(out.get("changes", [])) <= 1:
+            print(f"shift: {out['shift_days']:+d} days")
+            print(f"  nothing is defined relative to {keypart}, so no other "
+                  "date moves. This is the answer, not a failure: the "
+                  "documents state no rule connecting it to anything else.")
+            return 0
         if args.json:
             print(json.dumps(out, indent=2))
         else:
@@ -223,7 +331,25 @@ def _cmd_capability(args) -> int:
             tolled_from=_tolling_date(args, "start"),
             tolled_to=_tolling_date(args, "end"))
         if not results:
-            print("no rule discoverable in the rule document", file=sys.stderr)
+            from tdg_core.provenance import check_relations
+            rejected = [c for c in check_relations(rule_tdg) if not c.supported]
+            if rejected:
+                print("error: this rule pack states a period its own statute "
+                      "text does not contain, so no rule was used.",
+                      file=sys.stderr)
+                for c in rejected:
+                    print(f"       {c.summary}", file=sys.stderr)
+                print("       Fix the pack, or run 'tdg rulepack validate' on "
+                      "it to see the full report.", file=sys.stderr)
+            else:
+                print("error: no time limit could be read from that rule "
+                      "document.\n"
+                      "       A rule pack needs an additive dependency "
+                      "carrying a period, for example\n"
+                      "       'effective date of termination' + 3 months -> "
+                      "'presentation of the complaint'.\n"
+                      "       Run 'tdg rulepack validate <pack folder>' for a "
+                      "full diagnosis.", file=sys.stderr)
             return 1
         if args.json:
             print(json.dumps([r.to_dict() for r in results], indent=2))
@@ -370,6 +496,50 @@ def main(argv: list[str] | None = None) -> int:
     dl.add_argument("--acas-a", metavar="DATE", help=argparse.SUPPRESS)
     dl.add_argument("--acas-b", metavar="DATE", help=argparse.SUPPRESS)
 
+    ask = sub.add_parser(
+        "ask",
+        help="ask a question about the bundle; dates come from the engine, "
+             "the rest from the documents")
+    _tdg_input(ask)
+    ask.add_argument("question", help="a plain-English question")
+    ask.add_argument("--model",
+                     help="the model that writes the answer, e.g. llama3. "
+                          "Env: TDG_ANSWER_MODEL, then TDG_LLM_MODEL")
+    ask.add_argument("--base-url",
+                     help="where that model is, e.g. "
+                          "http://localhost:11434/v1. Env: "
+                          "TDG_ANSWER_BASE_URL, then OPENAI_BASE_URL")
+    ask.add_argument("--passages", type=int, default=8,
+                     help="how many document sentences to retrieve (default 8)")
+    ask.add_argument("--embed-model", help="optional embedder for retrieval")
+    ask.add_argument("--embed-base-url")
+    ask.add_argument("--show-prompt", action="store_true",
+                     help="print what the model was given instead of the answer")
+    ask.add_argument("--json", action="store_true",
+                     help="answer plus every fact and passage it rested on")
+
+    ctx = sub.add_parser(
+        "context",
+        help="grounded temporal facts for a prompt, with quotes and gaps "
+             "stated (for retrieval-augmented generation)")
+    _tdg_input(ctx)
+    ctx.add_argument("--about", metavar="TERMS",
+                     help="only facts matching these words, e.g. termination")
+    ctx.add_argument("--since", metavar="DATE")
+    ctx.add_argument("--until", metavar="DATE")
+    ctx.add_argument("--on", metavar="DATE")
+    ctx.add_argument("--limit", type=int)
+    ctx.add_argument("--json", action="store_true",
+                     help="machine-readable, with character offsets")
+
+    stale = sub.add_parser(
+        "stale",
+        help="what stops being trustworthy if one date turns out to be wrong")
+    _tdg_input(stale)
+    stale.add_argument("--changed", required=True, metavar="DOC:FACT",
+                       help="the fact whose date is in doubt")
+    stale.add_argument("--json", action="store_true")
+
     vw = sub.add_parser("view", help="open the point-and-click viewer in your browser")
     vw.add_argument("workspace", nargs="?", default="./timebar-workspace",
                     help="case folder (created if missing)")
@@ -395,7 +565,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_view(args)
     if args.cmd == "correct":
         return _cmd_correct(args)
-    if args.cmd in ("interval", "contradictions", "whatif", "deadline"):
+    if args.cmd in ("interval", "contradictions", "whatif", "deadline",
+                    "stale", "context", "ask"):
         return _cmd_capability(args)
 
     formats = [f.strip() for f in args.formats.split(",") if f.strip()]
@@ -411,9 +582,17 @@ def main(argv: list[str] | None = None) -> int:
         tdgs, failures = _load_tdg_bundle(args.input, args.matter_field)
         extractor_label = "none (pre-extracted TDGs)"
     else:
+        from tdg_chrono.models import resolve, summarise
+
+        extractor_cfg = resolve("extract", model=args.model,
+                                base_url=args.base_url)
+        embed_cfg = resolve("embed", model=args.embed_model,
+                            base_url=args.embed_base_url)
+        print(f"models: {summarise([extractor_cfg, embed_cfg])}",
+              file=sys.stderr)
         tdgs, failures, missed = _extract_bundle(
             args.input, args.extractor, clean=args.clean,
-            model=args.model, base_url=args.base_url)
+            model=extractor_cfg.model, base_url=extractor_cfg.base_url)
         extractor_label = args.extractor + (f" ({args.model})" if args.model else "")
         total_facts = sum(len(t.facts) for t in tdgs.values())
         if tdgs and total_facts == 0 and not args.allow_empty:
@@ -427,9 +606,21 @@ def main(argv: list[str] | None = None) -> int:
             return 3
 
     if not tdgs:
-        print("No documents could be processed:", file=sys.stderr)
-        for f in failures:
-            print(f"  FAIL: {f}", file=sys.stderr)
+        print(f"error: no usable documents in {args.input}", file=sys.stderr)
+        if failures:
+            print("       every file there failed to load:", file=sys.stderr)
+            for f in failures:
+                print(f"         {f}", file=sys.stderr)
+        elif args.from_tdgs:
+            print("       --from-tdgs expects a folder of TDG *.json files. "
+                  "That folder has none.\n"
+                  "       If it holds raw documents instead, drop --from-tdgs "
+                  "and pass an extractor.", file=sys.stderr)
+        else:
+            print("       expected .txt, .md, .pdf or .docx documents in "
+                  "that folder.\n"
+                  "       If it holds already-extracted TDG *.json, add "
+                  "--from-tdgs.", file=sys.stderr)
         return 1
 
     corrections = load_corrections(args.corrections) if args.corrections else []
@@ -474,14 +665,27 @@ def main(argv: list[str] | None = None) -> int:
     for p in written:
         print(f"  wrote {p}")
     if failures:
-        print(f"\n{len(failures)} document(s) failed and were skipped:")
+        print(f"\nWARNING  {len(failures)} document(s) could not be read and "
+              "are missing from this timeline:", file=sys.stderr)
         for f in failures:
-            print(f"  FAIL: {f}")
+            print(f"         {f}", file=sys.stderr)
+        print("         The chronology below was built from the rest. Fix or "
+              "remove those files and run again for a complete one.",
+              file=sys.stderr)
 
     if missed:
         from tdg_chrono.recall import format_report
         for line in format_report(missed):
             print(line)
+
+    bad_relations = chron.meta.get("relations", [])
+    if bad_relations:
+        print(f"\nrelation audit: {len(bad_relations)} link(s) added by the "
+              "extractor, not found in the document.")
+        print("  It measured the gap between two dates and recorded it as a "
+              "rule. Ignored in all calculations.")
+        for r in bad_relations:
+            print(f"  - {r['summary']}")
 
     unverified = chron.meta.get("counts", {}).get("unverified_quotes", 0)
     if unverified:
@@ -529,16 +733,60 @@ def _report_matter_separation(tdgs, matter_field: str) -> None:
               f"{named}/{total} documents. The remaining {total - named} link "
               "freely, because nothing distinguishes their matter.")
     else:
-        print(f"\nlinking: no '{matter_field}' and no parties on any "
-              "document, so nothing separates one matter from another and "
-              "every document was linked to every other. That is fine for a "
-              "single-case bundle. If this folder mixes cases, declare a "
-              "matter or extract parties.")
+        print(f"\nWARNING  no '{matter_field}' and no parties on any "
+              "document.", file=sys.stderr)
+        print("         Nothing distinguishes one case from another here, so "
+              "every document was linked to every other. If this folder holds "
+              "more than one case, rows from different cases can be merged "
+              "into one and reported as a disagreement between them.",
+              file=sys.stderr)
+        print("         Fine for a single-case bundle. Otherwise declare a "
+              f"'{matter_field}' on each document, or use an extractor that "
+              "names the parties.", file=sys.stderr)
+
+
+def _explain(exc: Exception) -> str:
+    """Turn an internal failure into something a user can act on.
+
+    Four ordinary mistakes used to end in a Python traceback: naming a
+    document that is not in the bundle, naming a fact that is not in the
+    document, mistyping a date, and pointing at a rule file that does not
+    exist. A traceback tells the reader nothing about which of those they
+    did.
+    """
+    import json as _json
+
+    if isinstance(exc, FileNotFoundError):
+        return (f"error: no such file: {exc.filename}\n"
+                "       Check the path. For --rule this should be a "
+                "statute.tdg.json inside a rule pack folder.")
+    if isinstance(exc, _json.JSONDecodeError):
+        return (f"error: {exc.doc[:0] or 'that file'} is not valid JSON "
+                f"(line {exc.lineno}, column {exc.colno}): {exc.msg}")
+    if isinstance(exc, KeyError):
+        # _find already builds a helpful message; unwrap it from the KeyError
+        return f"error: {exc.args[0] if exc.args else exc}"
+    if isinstance(exc, ValueError):
+        return f"error: {exc}"
+    if isinstance(exc, PermissionError):
+        return f"error: not allowed to read {exc.filename}"
+    return f"error: {type(exc).__name__}: {exc}"
 
 
 def _entry() -> int:
+    import json as _json
     try:
         return main()
+    except SystemExit as e:
+        # A message-carrying SystemExit is a user error we already phrased.
+        if isinstance(e.code, str):
+            print(e.code, file=sys.stderr)
+            return 1
+        raise
+    except (FileNotFoundError, PermissionError, _json.JSONDecodeError,
+            KeyError, ValueError) as e:
+        print(_explain(e), file=sys.stderr)
+        return 2
     except BrokenPipeError:
         import os
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())

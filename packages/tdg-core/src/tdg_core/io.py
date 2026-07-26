@@ -126,6 +126,7 @@ def build_tdg(
         dependencies=deps,
         matter=str(matter) if matter is not None else None,
         parties=parties,
+        source_text_sha256=data.get("source_text_sha256"),
     )
 
 

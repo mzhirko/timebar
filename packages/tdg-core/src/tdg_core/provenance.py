@@ -122,3 +122,230 @@ def format_report(reports: dict) -> list[str]:
     for rep in sorted(problems, key=lambda r: r.doc_id):
         lines.append(f"  - {rep.summary}")
     return lines
+
+
+# ─── Relations: is the period the edge claims actually in the document? ──
+#
+# An extractor can invent a dependency. Two of the three relations in a test
+# bundle were the model computing the gap between two dates it had seen and
+# writing it down as though the document stated a rule:
+#
+#   hearing -> employment termination, "+45 days"   (the gap; 45 appears nowhere)
+#   hearing -> employment termination, "+53 days"   (likewise)
+#
+# A third named a real period from the text but hung it off the wrong anchor:
+# "within 28 days of service" attached to the start of employment, six years
+# earlier. Nothing detected any of them.
+#
+# Two deterministic questions catch all three. Is the period stated in the
+# document at all? And is the anchor named in the sentence that states it?
+
+import re as _re
+
+_OFFSET_RE = _re.compile(
+    r"(\d+)\s*(day|days|week|weeks|month|months|year|years|d|w|m|y)\b",
+    _re.IGNORECASE)
+
+_UNIT_FAMILY = {"d": "day", "day": "day", "days": "day",
+                "w": "week", "week": "week", "weeks": "week",
+                "m": "month", "month": "month", "months": "month",
+                "y": "year", "year": "year", "years": "year"}
+
+
+def _number_words() -> dict:
+    """English numerals, from data. A statute spells out what an edge digitises."""
+    import json
+    from importlib import resources
+    try:
+        with resources.files("tdg_core.data").joinpath(
+                "number_words.en.json").open() as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ModuleNotFoundError):  # pragma: no cover
+        return {"numbers": {}, "units": {}}
+
+
+_WORDS = _number_words()
+
+
+@dataclass
+class RelationCheck:
+    """Whether one dependency's arithmetic is actually in the document."""
+
+    doc_id: str
+    from_id: str
+    to_id: str
+    constraint_type: str
+    anchor: str
+    target: str
+    offset: str
+    verdict: str          # "supported" | "offset-not-in-source" | "anchor-not-in-clause"
+    clause: str = ""
+
+    @property
+    def supported(self) -> bool:
+        return self.verdict == "supported"
+
+    @property
+    def summary(self) -> str:
+        if self.verdict == "offset-not-in-source":
+            return (f"{self.doc_id}: '{self.target}' is {self.offset} after "
+                    f"'{self.anchor}' — the document never says so.")
+        if self.verdict == "anchor-not-in-clause":
+            return (f"{self.doc_id}: '{self.target}' is {self.offset} after "
+                    f"'{self.anchor}' — but the document counts {self.offset} "
+                    f"from something else: \"{self.clause[:70]}\"")
+        return f"{self.doc_id}: '{self.anchor}' -> '{self.target}' ({self.offset}) checks out"
+
+
+def _stated_offsets(text: str) -> set:
+    """Every (n, unit) period the document states, digits or words alike."""
+    found = set()
+    flat = _flat(text).lower()
+    for n, unit in _OFFSET_RE.findall(flat):
+        found.add((int(n), _UNIT_FAMILY[unit.lower()]))
+    for word, value in _WORDS.get("numbers", {}).items():
+        for family, spellings in _WORDS.get("units", {}).items():
+            for spelling in spellings:
+                if f"{word} {spelling}" in flat:
+                    found.add((value, family))
+    return found
+
+
+def _clause_stating(text: str, n: int, unit: str) -> str:
+    """The sentence in which the document states this period."""
+    words = {w for w, v in _WORDS.get("numbers", {}).items() if v == n}
+    spellings = _WORDS.get("units", {}).get(unit, [unit])
+    for sentence in _re.split(r"(?<=[.;:])\s+", _flat(text)):
+        low = sentence.lower()
+        if any(f"{form} {sp}" in low
+               for sp in spellings for form in ({str(n)} | words)):
+            return sentence
+    return ""
+
+
+def check_relation(tdg: TemporalDependencyGraph, dep) -> RelationCheck | None:
+    """Verify one dependency's period against the document's own words.
+
+    Returns None when the edge asserts no period, which is the normal case
+    for a pure ordering constraint and nothing to check.
+    """
+    from tdg_core.linking import tokenise
+
+    facts = {f.id: f for f in tdg.facts}
+    anchor, target = facts.get(dep.from_id), facts.get(dep.to_id)
+    if anchor is None or target is None:
+        return None
+
+    text = dep.constraint_expr or ""
+    match = _OFFSET_RE.search(text)
+    if match:
+        n, unit = int(match.group(1)), _UNIT_FAMILY[match.group(2).lower()]
+    elif dep.delta_days:
+        n, unit = int(dep.delta_days), "day"
+    else:
+        return None
+
+    common = dict(doc_id=tdg.document_id, from_id=dep.from_id, to_id=dep.to_id,
+                  constraint_type=dep.constraint_type,
+                  anchor=anchor.entity, target=target.entity,
+                  offset=f"{n} {unit}{'s' if n != 1 else ''}")
+
+    if (n, unit) not in _stated_offsets(tdg.source_text or ""):
+        return RelationCheck(verdict="offset-not-in-source", **common)
+
+    clause = _clause_stating(tdg.source_text or "", n, unit)
+    anchor_words = {t for t in tokenise(anchor.entity) if len(t) > 3}
+    if anchor_words and not (anchor_words & set(tokenise(clause))):
+        return RelationCheck(verdict="anchor-not-in-clause", clause=clause, **common)
+    return RelationCheck(verdict="supported", clause=clause, **common)
+
+
+def check_relations(tdg: TemporalDependencyGraph) -> list:
+    """Every checkable dependency in one document."""
+    out = []
+    for dep in tdg.dependencies:
+        result = check_relation(tdg, dep)
+        if result is not None:
+            out.append(result)
+    return out
+
+
+def check_bundle_relations(tdgs: dict) -> dict:
+    """Verify every document's dependencies. {document_id: [RelationCheck]}."""
+    return {doc_id: check_relations(tdg) for doc_id, tdg in tdgs.items()}
+
+
+def unsupported_relations(checks: dict) -> list:
+    """Every dependency whose arithmetic the document does not support."""
+    return [c for results in checks.values() for c in results if not c.supported]
+
+
+def format_relation_report(checks: dict) -> list:
+    """Printable lines. Empty when every stated period checks out."""
+    bad = unsupported_relations(checks)
+    if not bad:
+        return []
+    lines = [f"\nrelation audit: {len(bad)} dependenc(ies) assert a period the "
+             "document does not support."]
+    lines.append("  These are not used for arithmetic. A date calculated from "
+                 "an invented period would look exactly like a real one.")
+    for c in sorted(bad, key=lambda c: (c.doc_id, c.from_id)):
+        lines.append(f"  - {c.summary}")
+    return lines
+
+
+# ─── The hash the schema promises ────────────────────────────────────────
+
+def source_hash(text: str) -> str:
+    """SHA-256 of a document's text, as the schema defines it."""
+    import hashlib
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def check_source_hash(tdg: TemporalDependencyGraph) -> tuple[str, str]:
+    """Compare a declared source hash with the text, if both are present.
+
+    The schema tells producers that a bundle with sensitive content may ship
+    offsets and a hash instead of the text. Nothing read that hash, so the
+    substitute it offered was never actually a substitute: such a bundle had
+    no provenance path at all. Returns (verdict, detail).
+
+    Verdicts: "match", "mismatch", "text-only", "hash-only", "neither".
+    """
+    declared = (tdg.source_text_sha256 or "").strip().lower()
+    has_text = len(_flat(tdg.source_text or "")) >= _MIN_SOURCE_CHARS
+
+    if declared and has_text:
+        actual = source_hash(tdg.source_text)
+        if actual == declared:
+            return "match", "the shipped text matches its declared hash"
+        return "mismatch", (f"declared {declared[:12]}... but the shipped text "
+                            f"hashes to {actual[:12]}...; one of them is stale")
+    if declared:
+        return "hash-only", ("text externalised; supply it to check the quotes "
+                             f"against hash {declared[:12]}...")
+    if has_text:
+        return "text-only", "text shipped, no hash declared to pin it to"
+    return "neither", ("no source text and no hash, so nothing in this "
+                       "document can be verified at all")
+
+
+def trusted_dependencies(tdg: TemporalDependencyGraph) -> list:
+    """The dependencies whose arithmetic the document actually supports.
+
+    Every consumer that walks additive edges must filter through this, not
+    just the chronology. Guarding one path and leaving the rest open was a
+    real hole: a fabricated "45 days" edge was correctly rejected by the
+    timeline while What-if still used it to move a termination date by a
+    month, `stale` still reported a fact as invalidated by it, and the
+    viewer still advertised the dependency as real.
+
+    A rejected edge is dropped rather than downgraded. An edge asserting no
+    period at all is kept, since there is no arithmetic to be wrong about.
+    """
+    keep = []
+    for dep in tdg.dependencies:
+        result = check_relation(tdg, dep)
+        if result is None or result.supported:
+            keep.append(dep)
+    return keep

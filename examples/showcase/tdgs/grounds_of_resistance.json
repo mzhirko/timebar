@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "document_id": "grounds_of_resistance",
+  "document_type": "legal",
+  "source_text": "GROUNDS OF RESISTANCE\n\nClaimant: Ms R. Vale\nRespondent: Harbourfield Media Ltd\n\n1. The claimant commenced employment with the company on 14 January 2020.\n\n2. The respondent denies each and every allegation made in the claim.\n",
+  "source_text_sha256": "1aa1bb939dc1586158bff4a6adee490d6b64f90025777e628fbeebfde124e3c7",
+  "matter": "VALE/2025",
+  "parties": [
+    "Ms R. Vale",
+    "Harbourfield Media Ltd"
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "commencement of employment",
+      "role": "START",
+      "value": "2020-01-14",
+      "raw_text": "2020-01-14",
+      "timex_type": "DATE",
+      "sentence": "The claimant commenced employment with the company on 14 January 2020.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 83,
+      "end_char": 153,
+      "date_parsed": "2020-01-14"
+    },
+    {
+      "id": "f2",
+      "entity": "denial of allegations",
+      "role": "UNKNOWN",
+      "value": null,
+      "raw_text": "",
+      "timex_type": "DATE",
+      "sentence": "The respondent denies each and every allegation made in the claim.",
+      "confidence": 0.9,
+      "temporal_content": false,
+      "start_char": 158,
+      "end_char": 224
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}

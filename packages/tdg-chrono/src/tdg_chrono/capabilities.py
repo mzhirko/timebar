@@ -29,7 +29,9 @@ def _find(tdgs: dict[str, TemporalDependencyGraph], key: FactKey) -> TemporalFac
     for f in tdgs[doc].facts:
         if f.id == fid:
             return f
-    raise KeyError(f"no fact '{fid}' in document '{doc}'")
+    available = ", ".join(f"{f.id} ({f.entity})" for f in tdgs[doc].facts) or "none"
+    raise KeyError(f"no fact '{fid}' in document '{doc}'. "
+                   f"That document has: {available}")
 
 
 def _interval_of(tdg_doc: TemporalDependencyGraph, entity_query: str
@@ -138,6 +140,23 @@ def contradiction_report(tdgs, *, composed: bool = True) -> dict:
 
 # ─── whatif ──────────────────────────────────────────────────────────────
 
+def has_dependents(tdgs, key: FactKey) -> bool:
+    """Is any date defined relative to this one?
+
+    Moving a date with no dependents changes nothing, which is correct but
+    reads as a broken feature when the answer is an empty result and no
+    explanation.
+    """
+    from tdg_core.provenance import trusted_dependencies
+
+    doc_id, fact_id = key
+    tdg = tdgs.get(doc_id)
+    if tdg is None:
+        return False
+    return any(d.from_id == fact_id and d.constraint_type == "additive"
+               for d in trusted_dependencies(tdg))
+
+
 def whatif(tdgs, key: FactKey, new_date: date, max_hops: int = 10) -> dict:
     """Move one root date; recompute every downstream date along additive
     dependencies; report the diff. Sources are never mutated (copies)."""
@@ -158,12 +177,16 @@ def whatif(tdgs, key: FactKey, new_date: date, max_hops: int = 10) -> dict:
     tdg_doc = tdgs[doc_id]
     fact_map = {f.id: f for f in tdg_doc.facts}
 
-    # BFS along additive dependencies within the document
+    # BFS along additive dependencies within the document. Only the ones the
+    # document actually supports: an invented period must not move a date.
+    from tdg_core.provenance import trusted_dependencies
+
+    trusted = trusted_dependencies(tdg_doc)
     frontier = {key[1]}
     seen = set(frontier)
     for _ in range(max_hops):
         nxt = set()
-        for dep in tdg_doc.dependencies:
+        for dep in trusted:
             if dep.constraint_type != "additive" or dep.from_id not in frontier:
                 continue
             if dep.to_id in seen:
@@ -213,3 +236,46 @@ def merged_instance(tdgs) -> TemporalDependencyGraph:
     return TemporalDependencyGraph(
         document_id="+".join(sorted(tdgs)), document_type="bundle",
         source_text="", facts=facts)
+
+
+# ─── stale ───────────────────────────────────────────────────────────────
+
+def stale_report(tdgs, key: FactKey, delta_days: int = 0) -> dict:
+    """Which facts stop being trustworthy when one date changes.
+
+    Answers "if this date turns out to be wrong, what else is now wrong?"
+    across the whole bundle, following both the arithmetic inside a document
+    and the coreference links between documents.
+
+    The engine has had this since the beginning, under a docstring naming
+    the use case it was written for -- "which RAG chunks become stale when a
+    date changes?" -- and nothing ever called it. Exposing it is what makes
+    the hook reachable: a retrieval system holding an answer built on a
+    document can ask which of its stored answers a correction invalidates.
+    """
+    linker = CrossDocLinker(composed=True)
+    for t in tdgs.values():
+        linker.add_tdg(t)
+    root = _find(tdgs, key)
+    stale = linker.propagate_staleness(key[0], key[1], delta_days=delta_days)
+
+    facts = {(d, f.id): f for d, t in tdgs.items() for f in t.facts}
+    items = []
+    for s in stale:
+        f = facts.get((s.doc_id, s.fact_id))
+        items.append({
+            "doc_id": s.doc_id, "fact_id": s.fact_id,
+            "entity": f.entity if f else "",
+            "value": s.old_value,
+            "quote": (f.sentence if f else "") or "",
+            "reason": s.reason,
+            "same_document": s.doc_id == key[0],
+        })
+    return {
+        "changed": {"key": list(key), "entity": root.entity,
+                    "value": root.timex.value,
+                    "quote": root.sentence or ""},
+        "stale": items,
+        "count": len(items),
+        "documents_touched": sorted({i["doc_id"] for i in items}),
+    }

@@ -101,7 +101,9 @@ def test_a_derived_date_can_contradict_an_explicit_one():
     from tdg_core.tdg import TemporalDependency
 
     et1 = TemporalDependencyGraph(
-        document_id="et1", document_type="legal", source_text="",
+        document_id="et1", document_type="legal",
+        source_text=("The claim was served on the respondent on 6 October 2025.\n"
+                     "The response is due within 28 days of service of the claim.\n"),
         facts=[f("f1", "service of the claim", "START", "2025-10-06",
                  date(2025, 10, 6)),
                f("f2", "response deadline", "END", None)],
@@ -119,7 +121,9 @@ def test_a_derived_date_shows_its_working():
     from tdg_core.tdg import TemporalDependency
 
     et1 = TemporalDependencyGraph(
-        document_id="et1", document_type="legal", source_text="",
+        document_id="et1", document_type="legal",
+        source_text=("The claim was served on the respondent on 6 October 2025.\n"
+                     "The response is due within 28 days of service of the claim.\n"),
         facts=[f("f1", "service of the claim", "START", "2025-10-06",
                  date(2025, 10, 6)),
                f("f2", "response deadline", "END", None)],
@@ -139,7 +143,9 @@ def test_sources_are_never_mutated_by_resolution():
     from tdg_core.tdg import TemporalDependency
 
     et1 = TemporalDependencyGraph(
-        document_id="et1", document_type="legal", source_text="",
+        document_id="et1", document_type="legal",
+        source_text=("The claim was served on the respondent on 6 October 2025.\n"
+                     "The response is due within 28 days of service of the claim.\n"),
         facts=[f("f1", "service of the claim", "START", "2025-10-06",
                  date(2025, 10, 6)),
                f("f2", "response deadline", "END", None)],
@@ -190,3 +196,23 @@ def test_the_run_reports_how_many_quotes_could_not_be_checked():
         "response": _unchecked("response", "", "2019-03-03")})
     assert chron.meta["counts"]["unverified_quotes"] == 1
     assert chron.meta["provenance"]["response"]["has_source_text"] is False
+
+
+def test_a_fabricated_period_never_drives_a_derived_date():
+    """An invented rule must not produce a date that looks like a real one."""
+    from tdg_core.tdg import TemporalDependency
+
+    doc_ = TemporalDependencyGraph(
+        document_id="letter", document_type="legal",
+        source_text=("The disciplinary hearing was held on 28 May 2025.\n"
+                     "Your employment terminates with effect from 12 July 2025.\n"),
+        facts=[f("a", "hearing", "START", "2025-05-28", date(2025, 5, 28)),
+               f("b", "review date", "END", None)],
+        dependencies=[TemporalDependency(from_id="a", to_id="b",
+                                         constraint_type="additive",
+                                         constraint_expr="45 days",
+                                         delta_days=45)])
+    chron = build_chronology({"letter": doc_})
+    assert not [e for e in chron.events if e.status == "derived"], (
+        "a period the document never states must not produce a date")
+    assert chron.meta["counts"]["unsupported_relations"] == 1

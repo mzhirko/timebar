@@ -512,9 +512,13 @@ class CrossDocLinker:
 
         def _dep_signature(tdg: TemporalDependencyGraph) -> set[tuple[str, str, str]]:
             """Extract the role-pair-type triples as a structural fingerprint."""
+            from tdg_core.provenance import trusted_dependencies
+
             fact_map = {f.id: f for f in tdg.facts}
             sig = set()
-            for dep in tdg.dependencies:
+            # An invented edge would contribute a shape the document never
+            # had, nudging a similarity score on evidence that is not there.
+            for dep in trusted_dependencies(tdg):
                 fa = fact_map.get(dep.from_id)
                 fb = fact_map.get(dep.to_id)
                 if fa and fb:
@@ -590,12 +594,18 @@ class CrossDocLinker:
         visited = {edited_fact_id}
         queue = [(edited_fact_id, 0)]
 
-        # Phase 1: intra-doc BFS through additive edges
+        # Phase 1: intra-doc BFS through additive edges. Only those the
+        # document supports: reporting a fact as invalidated by a period the
+        # document never states is an invented consequence, and reads exactly
+        # like a real one.
+        from tdg_core.provenance import trusted_dependencies
+
+        trusted = trusted_dependencies(tdg)
         while queue:
             current_id, depth = queue.pop(0)
             current_fact = fact_map.get(current_id)
 
-            for dep in tdg.dependencies:
+            for dep in trusted:
                 if dep.from_id != current_id:
                     continue
                 if dep.constraint_type != "additive":

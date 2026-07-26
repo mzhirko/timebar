@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "document_id": "et1_claim",
+  "document_type": "legal",
+  "source_text": "EMPLOYMENT TRIBUNAL - CLAIM FORM (ET1)\n\nClaimant: Ms R. Vale\nRespondent: Harbourfield Media Ltd\n\nSection 5 - Details of claim\n\nI was employed by the respondent from 14 January 2020 until\n15 September 2025, when I was dismissed for alleged misconduct.\n\nThe claim was presented to the tribunal on 2 December 2025.\n\nThe claim was served on the respondent on 8 December 2025.\n\nThe respondent must file its response within 28 days of service of the\nclaim.\n\nI claim unfair dismissal.\n",
+  "source_text_sha256": "c3859fe6b3c9a628e2305dc7b1da489c4c9a1769918d5b7266aa5342d9f82d84",
+  "matter": "VALE/2025",
+  "parties": [
+    "Ms R. Vale",
+    "Harbourfield Media Ltd"
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "commencement of employment",
+      "role": "START",
+      "value": "2020-01-14",
+      "raw_text": "2020-01-14",
+      "timex_type": "DATE",
+      "sentence": "I was employed by the respondent from 14 January 2020 until",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 127,
+      "end_char": 186,
+      "date_parsed": "2020-01-14"
+    },
+    {
+      "id": "f2",
+      "entity": "effective date of termination",
+      "role": "END",
+      "value": "2025-09-15",
+      "raw_text": "2025-09-15",
+      "timex_type": "DATE",
+      "sentence": "15 September 2025, when I was dismissed for alleged misconduct.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 187,
+      "end_char": 250,
+      "date_parsed": "2025-09-15"
+    },
+    {
+      "id": "f3",
+      "entity": "presentation of the claim",
+      "role": "START",
+      "value": "2025-12-02",
+      "raw_text": "2025-12-02",
+      "timex_type": "DATE",
+      "sentence": "The claim was presented to the tribunal on 2 December 2025.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 252,
+      "end_char": 311,
+      "date_parsed": "2025-12-02"
+    },
+    {
+      "id": "f4",
+      "entity": "service of the claim",
+      "role": "START",
+      "value": "2025-12-08",
+      "raw_text": "2025-12-08",
+      "timex_type": "DATE",
+      "sentence": "The claim was served on the respondent on 8 December 2025.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 313,
+      "end_char": 371,
+      "date_parsed": "2025-12-08"
+    },
+    {
+      "id": "f5",
+      "entity": "response deadline",
+      "role": "END",
+      "value": null,
+      "raw_text": "",
+      "timex_type": "DATE",
+      "sentence": "The respondent must file its response within 28 days of service of the",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 373,
+      "end_char": 443
+    }
+  ],
+  "dependencies": [
+    {
+      "from_id": "f4",
+      "to_id": "f5",
+      "constraint_type": "additive",
+      "constraint_expr": "within 28 days of",
+      "delta_days": 28,
+      "confidence": 0.85
+    },
+    {
+      "from_id": "f1",
+      "to_id": "f3",
+      "constraint_type": "additive",
+      "constraint_expr": "2149 days",
+      "delta_days": 2149,
+      "confidence": 0.85,
+      "note": "DELIBERATE DEFECT, not an error in this file. 2149 days is simply the gap between the two dates; this document states no such rule. Present so the relation audit has something to reject. It imitates a defect observed in real llama3 output. See the bundle README."
+    }
+  ],
+  "edit_scenarios": []
+}

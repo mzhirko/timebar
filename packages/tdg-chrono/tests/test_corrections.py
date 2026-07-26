@@ -101,8 +101,15 @@ def test_file_roundtrip_and_gold_export(tmp_path, bundle):
     reloaded = load_corrections(f)
     assert reloaded[0].was == "2025-07-14"
     gold = export_gold(reloaded)
-    assert len(gold) == 1                    # merge is not an annotation
-    assert gold[0]["was"] == "2025-07-14" and gold[0]["new_date"] == "2025-07-12"
+    # A merge IS an annotation, and the most informative one available: it
+    # says two facts are the same event, which is the judgement the
+    # cross-document linker exists to make. Excluding it discarded the only
+    # labelled data the tool produces by being used.
+    assert len(gold) == 2
+    edits = [g for g in gold if g["op"] == "edit_date"]
+    assert edits[0]["was"] == "2025-07-14" and edits[0]["new_date"] == "2025-07-12"
+    merges = [g for g in gold if g["op"] == "merge"]
+    assert merges[0]["keys"] == [["a", "f1"], ["b", "f1"]]
 
 
 def test_unknown_op_rejected(tmp_path):

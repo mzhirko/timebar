@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "document_id": "okonkwo_dismissal",
+  "document_type": "legal",
+  "source_text": "PRIVATE AND CONFIDENTIAL\n\nBrightmoor Freight Ltd\n\n5 September 2025\n\nDear Mr Okonkwo,\n\nYou commenced employment with the company on 3 March 2019.\n\nYour employment terminates with effect from 12 September 2025.\n\nYours sincerely,\n\nP. Cadogan\n",
+  "source_text_sha256": "1d9f255ba66b6f0c36d9800a6d42446212904d6cd28130607d488d4d868185ae",
+  "matter": "OKONKWO/2025",
+  "parties": [
+    "Mr T. Okonkwo",
+    "Brightmoor Freight Ltd"
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "commencement of employment",
+      "role": "START",
+      "value": "2019-03-03",
+      "raw_text": "2019-03-03",
+      "timex_type": "DATE",
+      "sentence": "You commenced employment with the company on 3 March 2019.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 86,
+      "end_char": 144,
+      "date_parsed": "2019-03-03"
+    },
+    {
+      "id": "f2",
+      "entity": "effective date of termination",
+      "role": "END",
+      "value": "2025-09-12",
+      "raw_text": "2025-09-12",
+      "timex_type": "DATE",
+      "sentence": "Your employment terminates with effect from 12 September 2025.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 146,
+      "end_char": 208,
+      "date_parsed": "2025-09-12"
+    }
+  ],
+  "dependencies": [],
+  "edit_scenarios": []
+}

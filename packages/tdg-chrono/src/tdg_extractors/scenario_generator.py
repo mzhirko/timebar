@@ -19,6 +19,16 @@ from tdg_core.tdg import TemporalDependencyGraph, TemporalFact
 DEFAULT_DELTAS = [30, -30, 90, -90, 365, -365]
 
 
+def _supported(tdg):
+    """Dependencies whose period the document actually states.
+
+    A generated scenario riding an invented rule reads exactly like one
+    riding a real rule, so the same filter applies here as everywhere else.
+    """
+    from tdg_core.provenance import trusted_dependencies
+    return trusted_dependencies(tdg)
+
+
 def generate_edit_scenarios(
     tdg: TemporalDependencyGraph,
     deltas: Optional[list[int]] = None,
@@ -36,7 +46,7 @@ def generate_edit_scenarios(
 
     # Find root facts: no incoming additive/ordering edges
     has_incoming = set()
-    for dep in tdg.dependencies:
+    for dep in _supported(tdg):
         if dep.constraint_type in ("additive", "ordering"):
             has_incoming.add(dep.to_id)
 
@@ -86,7 +96,7 @@ def _propagate_cascades(
     while queue:
         current_id, current_delta = queue.pop(0)
 
-        for dep in tdg.dependencies:
+        for dep in _supported(tdg):
             if dep.from_id != current_id or dep.constraint_type != "additive":
                 continue
             if dep.to_id in visited:
@@ -135,7 +145,7 @@ def _max_depth(tdg: TemporalDependencyGraph, root_id: str) -> int:
     while level:
         next_level = []
         for nid in level:
-            for dep in tdg.dependencies:
+            for dep in _supported(tdg):
                 if dep.from_id == nid and dep.to_id not in visited:
                     visited.add(dep.to_id)
                     next_level.append(dep.to_id)

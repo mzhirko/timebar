@@ -190,3 +190,37 @@ def test_composing_packs_deliberately_is_still_possible():
         assert "date on which the cause of action accrued" in e._ANCHOR_ALIASES
     finally:
         e.reset_vocabulary()
+
+
+# ── a pack's rule must be in the pack's own statute text ────────────────
+
+def test_a_rule_not_stated_in_the_statute_is_rejected(tmp_path):
+    """The deadline path is the most consequential place for an invented
+    period. `find_rules` reads additive dependencies without asking whether
+    the statute states them, so a pack asserting a period nobody wrote would
+    produce a confident deadline. Caught at pack-authoring time instead."""
+    import json
+    import shutil
+
+    from tdg_core.cli import main
+
+    bad = tmp_path / "pack"
+    shutil.copytree(RULEPACKS / "example" / "appeal-21-days", bad)
+    statute = bad / "statute.tdg.json"
+    data = json.loads(statute.read_text())
+    for dep in data["dependencies"]:
+        dep["constraint_expr"] = "90 days"      # the statute says 21
+    statute.write_text(json.dumps(data))
+
+    assert main(["rulepack", "validate", str(bad)]) == 1
+
+
+def test_every_shipped_pack_states_its_own_rule():
+    from tdg_core.io import build_tdg
+    from tdg_core.provenance import check_relations
+    import json
+
+    for statute in sorted(RULEPACKS.rglob("statute.tdg.json")):
+        tdg = build_tdg(json.loads(statute.read_text()))
+        bad = [c for c in check_relations(tdg) if not c.supported]
+        assert not bad, f"{statute.parent.name}: {[c.summary for c in bad]}"

@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "document_id": "dismissal_letter",
+  "document_type": "legal",
+  "source_text": "PRIVATE AND CONFIDENTIAL\n\nHarbourfield Media Ltd\n22 Lowgate, Kingston upon Hull HU1 1AA\n\n8 September 2025\n\nDear Ms Vale,\n\nTERMINATION OF EMPLOYMENT\n\nI write to confirm the outcome of the disciplinary hearing held on\n1 September 2025.\n\nYou commenced employment with the company on 14 January 2020 as a\nProduction Coordinator.\n\nFollowing the hearing, the company has decided to terminate your contract\nof employment. Your employment terminates with effect from 12 September 2025.\n\nYou have the right to appeal. Any appeal must be submitted in writing\nwithin 14 days of the date of this letter.\n\nYours sincerely,\n\nD. Ashworth\nHead of People\n",
+  "source_text_sha256": "6721e6b11fdb988cdcfc69392bb4c102d65c9286c0b9eabec960d2cca759deff",
+  "matter": "VALE/2025",
+  "parties": [
+    "Ms R. Vale",
+    "Harbourfield Media Ltd"
+  ],
+  "facts": [
+    {
+      "id": "f1",
+      "entity": "commencement of employment",
+      "role": "START",
+      "value": "2020-01-14",
+      "raw_text": "2020-01-14",
+      "timex_type": "DATE",
+      "sentence": "You commenced employment with the company on 14 January 2020 as a",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 235,
+      "end_char": 300,
+      "date_parsed": "2020-01-14"
+    },
+    {
+      "id": "f2",
+      "entity": "disciplinary hearing",
+      "role": "CONTAINS",
+      "value": "2025-09-01",
+      "raw_text": "2025-09-01",
+      "timex_type": "DATE",
+      "sentence": "I write to confirm the outcome of the disciplinary hearing held on",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 149,
+      "end_char": 215,
+      "date_parsed": "2025-09-01"
+    },
+    {
+      "id": "f3",
+      "entity": "effective date of termination",
+      "role": "END",
+      "value": "2025-09-12",
+      "raw_text": "2025-09-12",
+      "timex_type": "DATE",
+      "sentence": "Your employment terminates with effect from 12 September 2025.",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 415,
+      "end_char": 477,
+      "date_parsed": "2025-09-12"
+    },
+    {
+      "id": "f4",
+      "entity": "appeal deadline",
+      "role": "DURATION",
+      "value": "P14D",
+      "raw_text": "P14D",
+      "timex_type": "DURATION",
+      "sentence": "Any appeal must be submitted in writing",
+      "confidence": 0.9,
+      "temporal_content": true,
+      "start_char": 509,
+      "end_char": 548,
+      "duration_days": 14
+    }
+  ],
+  "dependencies": [
+    {
+      "from_id": "f3",
+      "to_id": "f4",
+      "constraint_type": "additive",
+      "constraint_expr": "within 14 days of",
+      "delta_days": 14,
+      "confidence": 0.85
+    }
+  ],
+  "edit_scenarios": []
+}

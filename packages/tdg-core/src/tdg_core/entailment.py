@@ -411,7 +411,13 @@ def find_rules(
     # the period clause is the sentence of whichever fact carries the DURATION;
     # fall back to scanning every sentence in the graph.
     sentences = [f.sentence for f in tdg.facts if getattr(f, "sentence", None)]
-    for dep in tdg.dependencies:
+    # A rule the document does not state must not become a deadline. Pack
+    # validation catches this at authoring time, but a statute passed
+    # straight to --rule has never been through that, and this is the most
+    # consequential place in the tool for an invented period to land.
+    from tdg_core.provenance import trusted_dependencies
+
+    for dep in trusted_dependencies(tdg):
         if dep.constraint_type != "additive":
             continue
         offset = _offset_from_dependency(dep, fact_map)
