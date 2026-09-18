@@ -415,3 +415,19 @@ fabricated. [DATA_POLICY.md](DATA_POLICY.md) sets out what data may be added
 to this repository.
 
 "Timebar" is a working title; the packages are named `tdg-*`.
+
+## Citations
+
+Please cite this work if you found it useful.
+
+```
+@misc{zhyrko2026timestructuretemporaldependency,
+      title={Time as Structure: Temporal Dependency Graphs for Verifiable Deadline Computation over Legal Documents}, 
+      author={Maryia Zhyrko and Lifeng Han and Suzan Verberne},
+      year={2026},
+      eprint={2608.15270},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2608.15270}, 
+}
+```
